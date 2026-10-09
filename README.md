@@ -128,6 +128,12 @@ iMaker-Group-Endpoint-Agent/
 - [x] Build Registry scanner for installed software.
 - [x] Establish Named Pipes IPC connection between Service and TrayApp.
 
+### v1.1: Inventory identity & user notifications — ✅ Completed
+- [x] Serial number with custom-PC fallbacks (motherboard serial, SMBIOS UUID, hardware ID) + IT asset tags.
+- [x] Monitor serials (EDID) and network adapters (MAC/IP) in telemetry.
+- [x] Push notifications to users (Windows toasts) via `notify` CLI; per-user targeting and delivery tracking.
+- [x] Automatic health alerts: disk almost full, restart pending after updates, failing disk.
+
 ### Phase 3: Targeted Deployment & Command Execution Engine
 - [ ] Implement safe `Restart` and `Rename PC` handlers.
 - [ ] Implement SHA-256 installer download and hash validation module.

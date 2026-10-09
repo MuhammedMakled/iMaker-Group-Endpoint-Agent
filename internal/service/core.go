@@ -27,6 +27,8 @@ import (
 type TelemetrySource interface {
 	Collect(ctx context.Context) protocol.TelemetrySnapshot
 	Software(ctx context.Context) protocol.SoftwareInventory
+	// Identity is the fast asset-identity lookup (serial, asset tag).
+	Identity(ctx context.Context) protocol.AssetIdentity
 }
 
 // Core is the service's state and business logic.
@@ -50,6 +52,10 @@ type Core struct {
 
 	seenMu  sync.Mutex
 	seenIDs map[string]time.Time // de-dupes resubmitted sessions
+
+	Notify     *NotificationCenter
+	identity   *protocol.AssetIdentity
+	identityAt time.Time
 }
 
 // NewCore opens the stores under dataDir (normally %ProgramData%\Imaker\data).
@@ -66,6 +72,9 @@ func NewCore(cfg *config.Config, log *slog.Logger, src TelemetrySource, dataDir 
 	if c.telemHist, err = store.NewDailyLog(filepath.Join(dataDir, "telemetry"), "telemetry"); err != nil {
 		return nil, err
 	}
+	if c.Notify, err = NewNotificationCenter(filepath.Join(dataDir, "notifications")); err != nil {
+		return nil, err
+	}
 	c.loadCached()
 	return c, nil
 }
@@ -78,6 +87,11 @@ func (c *Core) Register(m *ipc.Mux) {
 	m.Handle(protocol.MethodActivitySummary, c.handleActivitySummary)
 	m.Handle(protocol.MethodTelemetryGet, c.handleTelemetryGet)
 	m.Handle(protocol.MethodSoftwareList, c.handleSoftwareList)
+	m.Handle(protocol.MethodIdentity, c.handleIdentity)
+	m.Handle(protocol.MethodNotifyPoll, c.handleNotifyPoll)
+	m.Handle(protocol.MethodNotifyAck, c.handleNotifyAck)
+	m.HandleAdmin(protocol.MethodNotifySend, c.handleNotifySend)
+	m.HandleAdmin(protocol.MethodNotifyList, c.handleNotifyList)
 	// Phase 3: m.HandleAdmin("action.restart", ...), "action.rename", "deploy.install"
 }
 
@@ -135,6 +149,13 @@ func (c *Core) refreshTelemetry(ctx context.Context) protocol.TelemetrySnapshot 
 	}
 	_ = c.telemHist.Append(snap.CollectedAt, snap)
 	c.log.Info("telemetry collected", "ms", snap.DurationMs, "errors", len(snap.Errors))
+	if fired := EvaluateHealth(c.Notify, HealthAlertConfig{
+		Enabled:           c.cfg.HealthAlerts,
+		RestartAfterHours: c.cfg.RestartReminderAfter.D().Hours(),
+		SupportURL:        c.cfg.SupportURL,
+	}, snap); len(fired) > 0 {
+		c.log.Info("health alerts queued", "rules", fired)
+	}
 	return snap
 }
 
@@ -384,6 +405,66 @@ func (c *Core) handleSoftwareList(ctx context.Context, raw json.RawMessage) (any
 	out.Items = telemetry.FilterSoftware(inv.Items, p.Filter)
 	out.Count = len(out.Items)
 	return out, nil
+}
+
+func (c *Core) handleIdentity(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p struct {
+		Refresh bool `json:"refresh"`
+	}
+	_ = ipc.DecodeParams(raw, &p)
+	c.mu.Lock()
+	id, at := c.identity, c.identityAt
+	c.mu.Unlock()
+	// Identity WMI queries are cheap (<1 s); cache for 10 minutes so a newly
+	// set asset tag shows up quickly.
+	if id == nil || p.Refresh || time.Since(at) > 10*time.Minute {
+		fresh := c.src.Identity(ctx)
+		c.mu.Lock()
+		c.identity, c.identityAt = &fresh, time.Now()
+		c.mu.Unlock()
+		id = &fresh
+	}
+	return *id, nil
+}
+
+func (c *Core) handleNotifySend(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p protocol.NotifySendParams
+	if err := ipc.DecodeParams(raw, &p); err != nil {
+		return nil, err
+	}
+	if p.Source == "" {
+		p.Source = "cli"
+	}
+	n, err := c.Notify.Send(p)
+	if err != nil {
+		return nil, ipc.InvalidParams("%v", err)
+	}
+	c.log.Info("notification queued", "id", n.ID, "title", n.Title, "by", ipc.CallerFrom(ctx).User, "users", n.Users)
+	return n, nil
+}
+
+func (c *Core) handleNotifyPoll(ctx context.Context, _ json.RawMessage) (any, error) {
+	user := ipc.CallerFrom(ctx).User
+	if user == "" {
+		return protocol.NotifyPollResult{}, nil
+	}
+	return protocol.NotifyPollResult{Notifications: c.Notify.Pending(user)}, nil
+}
+
+func (c *Core) handleNotifyAck(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p protocol.NotifyAckParams
+	if err := ipc.DecodeParams(raw, &p); err != nil {
+		return nil, err
+	}
+	user := ipc.CallerFrom(ctx).User
+	if user == "" {
+		return nil, &protocol.RPCError{Code: protocol.ErrUnauthorized, Message: "caller identity unknown"}
+	}
+	return map[string]int{"acked": len(p.IDs)}, c.Notify.Ack(user, p.IDs)
+}
+
+func (c *Core) handleNotifyList(context.Context, json.RawMessage) (any, error) {
+	return protocol.NotifyListResult{Notifications: c.Notify.List()}, nil
 }
 
 // ---- helpers ----

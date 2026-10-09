@@ -97,3 +97,7 @@ func TestTelemetryRateLimit(t *testing.T) {
 		t.Fatalf("filter: %+v", inv)
 	}
 }
+
+func (f *fakeSource) Identity(context.Context) protocol.AssetIdentity {
+	return protocol.AssetIdentity{SerialNumber: "MB123456", SerialSource: "baseboard", IsCustomBuild: true}
+}

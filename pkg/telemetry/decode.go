@@ -181,3 +181,35 @@ func IsLowSpace(size, free uint64) bool {
 func cleanString(s string) string {
 	return strings.TrimSpace(strings.Trim(s, "\x00 "))
 }
+
+// EDIDString decodes a WmiMonitorID character array (one char per element,
+// zero-padded) into a string.
+func EDIDString(chars []int32) string {
+	var b strings.Builder
+	for _, c := range chars {
+		if c == 0 {
+			break
+		}
+		if c > 31 && c < 127 {
+			b.WriteRune(rune(c))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// pnpVendors maps common 3-letter EDID manufacturer codes to names.
+var pnpVendors = map[string]string{
+	"DEL": "Dell", "HWP": "HP", "HPN": "HP", "LEN": "Lenovo", "SAM": "Samsung", "SEC": "Samsung",
+	"GSM": "LG", "LGD": "LG Display", "ACR": "Acer", "AUS": "ASUS", "BNQ": "BenQ", "PHL": "Philips",
+	"VSC": "ViewSonic", "AOC": "AOC", "MSI": "MSI", "GBT": "Gigabyte", "EIZ": "EIZO", "NEC": "NEC",
+	"SNY": "Sony", "APP": "Apple", "AUO": "AU Optronics", "BOE": "BOE", "CMN": "Chimei Innolux",
+	"SHP": "Sharp", "IVM": "iiyama", "HKC": "HKC", "XMI": "Xiaomi", "HUA": "Huawei",
+}
+
+// PNPVendorName expands a PNP vendor code; unknown codes are returned as-is.
+func PNPVendorName(code string) string {
+	if n, ok := pnpVendors[strings.ToUpper(code)]; ok {
+		return n
+	}
+	return code
+}

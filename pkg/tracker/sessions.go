@@ -90,7 +90,7 @@ func (a *Aggregator) Observe(hb protocol.Heartbeat) {
 	}
 	if a.cur == nil {
 		a.cur = &protocol.WorkSession{
-			ID:          newID(),
+			ID:          NewID(),
 			User:        a.cfg.User,
 			Hostname:    a.cfg.Hostname,
 			App:         hb.App,
@@ -164,7 +164,7 @@ func (a *Aggregator) closeLocked(end time.Time, reason string) {
 	}
 }
 
-func newID() string {
+func NewID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])

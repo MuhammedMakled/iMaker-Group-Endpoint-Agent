@@ -46,3 +46,11 @@ func TestEnums(t *testing.T) {
 		t.Error("low space")
 	}
 }
+
+func TestEDID(t *testing.T) {
+	name := []int32{'D', 'E', 'L', 0, 0}
+	model := []int32{'D', 'E', 'L', 'L', ' ', 'U', '2', '7', '2', '3', 'Q', 'E', 0, 0}
+	if PNPVendorName(EDIDString(name)) != "Dell" || EDIDString(model) != "DELL U2723QE" {
+		t.Error("EDID decode")
+	}
+}

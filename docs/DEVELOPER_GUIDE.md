@@ -117,6 +117,72 @@ server resolves every caller's identity from the client process token
 `Mux.HandleAdmin` requires an elevated admin or SYSTEM — this is the hook for Phase 3 actions.
 Re-sent batches are de-duplicated by session ID, so the tray's at-least-once delivery is safe.
 
+## Serial number & asset identity (v1.1)
+
+```powershell
+.\ImakerAgentService.exe asset              # human-readable
+.\ImakerAgentService.exe asset -json        # for scripts / inventory import
+.\ImakerAgentService.exe set-asset-tag IMK-UAE-0042   # IT's own label (admin)
+```
+
+Branded PCs (Dell/HP/Lenovo) report a real BIOS serial. Custom-built PCs usually report
+placeholders such as `To be filled by O.E.M.`, `Default string` or `System Serial Number`; the agent
+detects these and falls back in this order:
+
+| Priority | Source | Typical on |
+|---|---|---|
+| 1 | BIOS system serial (`Win32_BIOS`) | Branded desktops & laptops |
+| 2 | Chassis serial (`Win32_SystemEnclosure`) | Some workstations |
+| 3 | **Motherboard serial** (`Win32_BaseBoard`) | Custom builds (ASUS/MSI/Gigabyte boards) |
+| 4 | SMBIOS UUID (`Win32_ComputerSystemProduct`, placeholder UUIDs rejected) | Rare boards with no serials |
+| 5 | Hardware ID `HW-XXXXXXXXXXXXXXXX` | Last resort |
+
+`serial_source` tells you which one was used and `is_custom_build` flags PCs without a BIOS serial.
+The **Hardware ID** is a SHA-256 of motherboard serial + SMBIOS UUID + boot-disk serial + onboard
+MAC: it survives Windows reinstalls and changes only if the motherboard/boot disk is replaced.
+
+**Recommended inventory practice:** for custom PCs, stick an IMAKER label on the case and run
+`set-asset-tag` once. The tag is stored in `HKLM\SOFTWARE\Imaker\Agent\AssetTag` and reported as
+`asset_tag` (an SMBIOS asset tag set in the BIOS is used if no registry tag exists). Users see
+`PC: <name> · <tag or S/N>` in the tray menu and can click it to copy the details into an IT ticket.
+
+Telemetry now also includes **monitors** (manufacturer, model, serial from EDID) and **network
+adapters** (MAC, IPs, gateway, DHCP).
+
+## Notifications (v1.1)
+
+The service keeps a notification queue; each user's tray app polls it every 30 s and shows a
+Windows toast from **"IMAKER IT"**. Messages persist across restarts and reach users who sign in
+later, until they expire (default 72 h). Each user sees a message once.
+
+```powershell
+# everyone on this PC
+.\ImakerAgentService.exe notify -title "Revit 2025 update tonight" -message "Please save and close Revit by 8 PM." -category update -url https://imaker-group.co/it
+# one user, urgent (stays on screen until dismissed)
+.\ImakerAgentService.exe notify -title "Restart required" -message "Restart before 5 PM to finish the security update." -severity critical -users "IMAKER\ali" -ttl 8h
+.\ImakerAgentService.exe notifications   # who has seen what
+```
+
+| Severity | Behaviour |
+|---|---|
+| `info` | Normal toast |
+| `warning` | Toast with ⚠ |
+| `critical` | "Reminder" toast that stays until dismissed; falls back to a pop-up dialog if toasts fail |
+
+`notify` / `notifications` require an elevated admin (enforced from the caller's Windows token).
+Users can reread the last messages from the tray → **Notifications**.
+
+**Automatic health alerts** (after each telemetry run, at most once per day per issue; disable with
+`"health_alerts": false`):
+- Drive almost full (< 10 % or < 20 GB free)
+- Windows updates waiting for a restart and the PC has been up > 72 h (`restart_reminder_after`)
+- Disk reporting Warning/Unhealthy or SMART predicted failure (critical)
+
+Set `"support_url"` in `agent.json` to add a **Contact IT** button to these alerts.
+
+The same queue will be fed by the Command Center/Odoo backend in Phase 3 (the `notify.send`
+RPC is the contract), so dashboard-sent messages and agent self-update notices need no tray change.
+
 ## Known limitations / Phase 3 notes
 
 1. **Browser domains.** Chrome/Edge/Firefox don't put the URL in the window title, so out of the
@@ -132,8 +198,11 @@ Re-sent batches are de-duplicated by session ID, so the tray's at-least-once del
 4. **SMART** — NVMe health comes from `MSFT_StorageReliabilityCounter` (temperature, wear %, power-on
    hours, error counts); the legacy `MSStorageDriver_FailurePredictStatus` only covers ATA/SATA.
    Some USB/RAID controllers expose neither — fields are then omitted, not zero.
-5. **Unclean logoff** — if the tray is killed without a shutdown message, the currently open
+5. **Toasts** use the WinRT toast API through a hidden PowerShell host under the AppUserModelID
+   `IMAKER.EndpointAgent` (registered per user in HKCU). If a hardened image blocks PowerShell,
+   info/warning messages stay in the tray history and critical ones fall back to a dialog.
+6. **Unclean logoff** — if the tray is killed without a shutdown message, the currently open
    session (≤ a few minutes) is lost; everything already closed is on disk.
-6. **Phase 3 hooks ready:** `Mux.HandleAdmin` for `action.restart` / `action.rename` /
+7. **Phase 3 hooks ready:** `Mux.HandleAdmin` for `action.restart` / `action.rename` /
    `deploy.install`; `pkg/protocol` is the wire schema for the backend uplink; the service's daily
    JSONL files are the upload source.

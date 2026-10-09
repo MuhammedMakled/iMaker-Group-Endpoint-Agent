@@ -59,6 +59,8 @@ type app struct {
 	client   *ipc.Client
 	dataDir  string
 
+	notifier *notifier
+
 	mu            sync.Mutex
 	serviceOnline bool
 }
@@ -185,6 +187,8 @@ func newApp(cfg *config.Config, log *slog.Logger, dataDir string) (*app, error) 
 		log.Warn("no folders to watch (configure watch_paths or install Dropbox)")
 	}
 
+	a.notifier = newNotifier(a)
+
 	if n, err := sessions.Prune(cfg.RetentionDays); err == nil && n > 0 {
 		log.Info("pruned old activity files", "count", n)
 	}
@@ -225,9 +229,10 @@ func (a *app) onFileEvent(ev protocol.FileEvent) {
 // runWorkers runs tracker, watcher and submitter until ctx is cancelled.
 func (a *app) runWorkers(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); a.tracker.Run(ctx) }()
 	go func() { defer wg.Done(); a.submitLoop(ctx) }()
+	go func() { defer wg.Done(); a.notifier.run(ctx) }()
 	if a.watcher != nil {
 		wg.Add(1)
 		go func() { defer wg.Done(); a.watcher.Run(ctx) }()
@@ -313,6 +318,10 @@ func (a *app) buildTray(ctx context.Context, cancel context.CancelFunc) {
 	mService := systray.AddMenuItem("Service: checking…", "Connection to ImakerAgentService")
 	mService.Disable()
 	systray.AddSeparator()
+	host, _ := os.Hostname()
+	mIdentity := systray.AddMenuItem(identityLabel(host, nil), "Computer name and serial number — click to copy for IT tickets")
+	mNotes := systray.AddMenuItem("Notifications", "Recent messages from IT")
+	systray.AddSeparator()
 
 	var mPause15, mPause60, mResume *systray.MenuItem
 	if a.cfg.AllowUserPause {
@@ -354,6 +363,14 @@ func (a *app) buildTray(ctx context.Context, cancel context.CancelFunc) {
 				} else {
 					mService.SetTitle(fmt.Sprintf("Service: offline — %d records saved locally", a.outbox.Len()))
 				}
+				if id := a.notifier.loadIdentity(ctx); id != nil {
+					mIdentity.SetTitle(identityLabel(host, id))
+				}
+				if u := a.notifier.unreadCount(); u > 0 {
+					mNotes.SetTitle(fmt.Sprintf("Notifications (%d new)", u))
+				} else {
+					mNotes.SetTitle("Notifications")
+				}
 				if mResume != nil {
 					if st.Paused {
 						mResume.Show()
@@ -367,6 +384,13 @@ func (a *app) buildTray(ctx context.Context, cancel context.CancelFunc) {
 				a.tracker.Pause(time.Now().Add(time.Hour))
 			case <-clicked(mResume):
 				a.tracker.Resume()
+			case <-mIdentity.ClickedCh:
+				if err := copyToClipboard(identityText(host, a.notifier.loadIdentity(ctx))); err == nil {
+					go a.notifier.toaster.Show(protocol.Notification{Title: "Copied", Message: "Computer name and serial number copied — paste it into your IT ticket.", Severity: protocol.SeverityInfo})
+				}
+			case <-mNotes.ClickedCh:
+				a.notifier.showHistory()
+				mNotes.SetTitle("Notifications")
 			case <-clicked(mOpen):
 				_ = exec.Command("explorer.exe", filepath.Join(a.dataDir, "activity")).Start()
 			case <-clicked(mQuit):

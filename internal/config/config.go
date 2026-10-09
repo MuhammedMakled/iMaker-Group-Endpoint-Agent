@@ -86,6 +86,13 @@ type Config struct {
 	// Timesheet suggestions
 	RoundToMinutes int `json:"round_to_minutes"`
 
+	// Notifications
+	NotificationPollInterval Duration `json:"notification_poll_interval"`
+	ToastAppID               string   `json:"toast_app_id"`
+	HealthAlerts             bool     `json:"health_alerts"`          // disk full / restart needed / failing disk
+	RestartReminderAfter     Duration `json:"restart_reminder_after"` // uptime before "please restart" when updates are pending
+	SupportURL               string   `json:"support_url"`            // optional "Contact IT" link on alerts
+
 	// ---- System service ----
 	TelemetryInterval           Duration `json:"telemetry_interval"`
 	SoftwareInterval            Duration `json:"software_interval"`
@@ -144,6 +151,11 @@ func Default() *Config {
 		SubmitInterval: Duration(30 * time.Second),
 
 		RoundToMinutes: 15,
+
+		NotificationPollInterval: Duration(30 * time.Second),
+		ToastAppID:               "IMAKER.EndpointAgent",
+		HealthAlerts:             true,
+		RestartReminderAfter:     Duration(72 * time.Hour),
 
 		TelemetryInterval:           Duration(6 * time.Hour),
 		SoftwareInterval:            Duration(24 * time.Hour),
@@ -212,6 +224,12 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxHeartbeatGap.D() < 3*c.PollInterval.D() {
 		c.MaxHeartbeatGap = Duration(3 * c.PollInterval.D())
+	}
+	if c.NotificationPollInterval.D() < 5*time.Second {
+		c.NotificationPollInterval = Duration(30 * time.Second)
+	}
+	if c.ToastAppID == "" {
+		c.ToastAppID = "IMAKER.EndpointAgent"
 	}
 	if c.RoundToMinutes <= 0 {
 		c.RoundToMinutes = 15

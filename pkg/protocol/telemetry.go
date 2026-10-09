@@ -20,6 +20,9 @@ type TelemetrySnapshot struct {
 	BitLocker     []BitLockerState `json:"bitlocker"`
 	Security      SecurityStatus   `json:"security"`
 	Updates       UpdateStatus     `json:"updates"`
+	Asset         AssetIdentity    `json:"asset"`
+	Monitors      []MonitorInfo    `json:"monitors"`
+	Network       []NetworkAdapter `json:"network"`
 	Errors        []string         `json:"errors,omitempty"`
 }
 
@@ -27,7 +30,7 @@ type SystemInfo struct {
 	Hostname     string `json:"hostname"`
 	Manufacturer string `json:"manufacturer"`
 	Model        string `json:"model"`
-	SerialNumber string `json:"serial_number"`
+	SerialNumber string `json:"serial_number"` // raw BIOS serial; see Asset for the inventory-safe value
 	BIOSVersion  string `json:"bios_version"`
 	Domain       string `json:"domain"`
 	PartOfDomain bool   `json:"part_of_domain"`
@@ -168,4 +171,56 @@ type SoftwareItem struct {
 	Scope           string `json:"scope"`        // machine | user
 	UserSID         string `json:"user_sid,omitempty"`
 	RegistryKey     string `json:"registry_key"`
+}
+
+// AssetIdentity is the inventory identity of the machine. Branded PCs
+// (Dell, HP, Lenovo…) have a real BIOS serial; custom-built PCs usually
+// report placeholders such as "To be filled by O.E.M." or "Default string",
+// so the agent falls back through other hardware identifiers.
+type AssetIdentity struct {
+	// SerialNumber is the best hardware serial found; SerialSource says where
+	// it came from: bios | enclosure | baseboard | smbios_uuid | fingerprint.
+	SerialNumber string `json:"serial_number"`
+	SerialSource string `json:"serial_source"`
+	// IsCustomBuild is true when the BIOS has no real system serial.
+	IsCustomBuild bool `json:"is_custom_build"`
+	// AssetTag is IT's own label (set with `ImakerAgentService set-asset-tag`
+	// or in the BIOS SMBIOS asset-tag field). Prefer this in the inventory.
+	AssetTag       string `json:"asset_tag,omitempty"`
+	AssetTagSource string `json:"asset_tag_source,omitempty"` // registry | smbios
+	// HardwareFingerprint is a stable hash of motherboard serial, SMBIOS
+	// UUID, boot-disk serial and onboard MAC. It survives Windows reinstalls.
+	HardwareFingerprint string `json:"hardware_fingerprint"`
+	ChassisType         string `json:"chassis_type"` // Desktop | Laptop | Mini PC | All-in-One | ...
+
+	// Raw candidates, for audit and manual matching.
+	BIOSSerial            string `json:"bios_serial,omitempty"`
+	EnclosureSerial       string `json:"enclosure_serial,omitempty"`
+	BaseboardSerial       string `json:"baseboard_serial,omitempty"`
+	BaseboardManufacturer string `json:"baseboard_manufacturer,omitempty"`
+	BaseboardProduct      string `json:"baseboard_product,omitempty"`
+	SMBIOSUUID            string `json:"smbios_uuid,omitempty"`
+	BootDiskSerial        string `json:"boot_disk_serial,omitempty"`
+	PrimaryMAC            string `json:"primary_mac,omitempty"`
+	MachineGUID           string `json:"machine_guid,omitempty"` // changes on Windows reinstall
+}
+
+// MonitorInfo comes from the monitor's EDID (WmiMonitorID).
+type MonitorInfo struct {
+	Manufacturer      string `json:"manufacturer"`
+	Model             string `json:"model"`
+	SerialNumber      string `json:"serial_number"`
+	ProductCode       string `json:"product_code,omitempty"`
+	YearOfManufacture int    `json:"year_of_manufacture,omitempty"`
+	Active            bool   `json:"active"`
+}
+
+// NetworkAdapter is an IP-enabled adapter (Win32_NetworkAdapterConfiguration).
+type NetworkAdapter struct {
+	Description string   `json:"description"`
+	MACAddress  string   `json:"mac_address"`
+	IPAddresses []string `json:"ip_addresses"`
+	Gateways    []string `json:"gateways,omitempty"`
+	DNSDomain   string   `json:"dns_domain,omitempty"`
+	DHCPEnabled bool     `json:"dhcp_enabled"`
 }

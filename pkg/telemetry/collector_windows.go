@@ -63,10 +63,13 @@ func (c *Collector) Collect(ctx context.Context) protocol.TelemetrySnapshot {
 
 	sections := []section{
 		{"system", collectSystem},
+		{"asset", collectAsset},
 		{"cpu", collectCPU},
 		{"gpu", collectGPU},
 		{"disks", collectPhysicalDisks},
 		{"volumes", collectVolumes},
+		{"monitors", collectMonitors},
+		{"network", collectNetwork},
 		{"bitlocker", collectBitLocker},
 		{"antivirus", collectAntivirus},
 		{"defender", collectDefender},

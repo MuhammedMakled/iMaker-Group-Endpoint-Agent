@@ -36,6 +36,10 @@ func (w WindowsSource) Software(context.Context) protocol.SoftwareInventory {
 	return telemetry.CollectSoftware()
 }
 
+func (w WindowsSource) Identity(context.Context) protocol.AssetIdentity {
+	return telemetry.CollectIdentity()
+}
+
 // Run starts the core (IPC server + schedulers) and blocks until ctx ends.
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	src := WindowsSource{Collector: &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory}}

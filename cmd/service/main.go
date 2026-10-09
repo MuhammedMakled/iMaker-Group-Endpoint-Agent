@@ -11,6 +11,10 @@
 //	ImakerAgentService.exe software     # print the software inventory as JSON
 //	ImakerAgentService.exe status       # ping the running service over the pipe
 //	ImakerAgentService.exe summary [-date 2026-10-09] [-user DOMAIN\user]
+//	ImakerAgentService.exe asset [-json]          # serial number / asset identity
+//	ImakerAgentService.exe set-asset-tag IMK-UAE-0042
+//	ImakerAgentService.exe notify -title "..." -message "..." [-severity warning] [-url https://...] [-users "DOMAIN\a,DOMAIN\b"] [-ttl 24h]
+//	ImakerAgentService.exe notifications          # list sent notifications and who saw them
 //
 // When launched by the Service Control Manager it runs as the service.
 package main
@@ -24,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/windows/svc"
 
@@ -55,6 +60,15 @@ func main() {
 	tray := fs.String("tray", "", "path to ImakerTrayApp.exe to auto-start at logon (install)")
 	date := fs.String("date", "", "YYYY-MM-DD (summary)")
 	user := fs.String("user", "", `DOMAIN\user (summary; admins only for other users)`)
+	asJSON := fs.Bool("json", false, "print JSON (asset)")
+	title := fs.String("title", "", "notification title (notify)")
+	message := fs.String("message", "", "notification text (notify)")
+	severity := fs.String("severity", "info", "info | warning | critical (notify)")
+	category := fs.String("category", "it", "update | it | health | policy (notify)")
+	link := fs.String("url", "", "https link opened on click (notify)")
+	button := fs.String("button", "", "button label for the link (notify)")
+	users := fs.String("users", "", `comma-separated DOMAIN\user list; empty = everyone (notify)`)
+	ttl := fs.String("ttl", "72h", "how long the notification stays deliverable (notify)")
 	_ = fs.Parse(args)
 
 	var err error
@@ -101,6 +115,43 @@ func main() {
 		var res protocol.ActivitySummaryResult
 		p := protocol.ActivitySummaryParams{Date: *date, User: *user}
 		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActivitySummary, p, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "asset":
+		id := telemetry.CollectIdentity()
+		if *asJSON {
+			err = printJSON(id)
+		} else {
+			printIdentity(id)
+		}
+	case "set-asset-tag":
+		tag := fs.Arg(0)
+		if err = telemetry.SetAssetTag(tag); err == nil {
+			if tag == "" {
+				fmt.Println("Asset tag cleared.")
+			} else {
+				fmt.Println("Asset tag set to", tag)
+			}
+		}
+	case "notify":
+		cfg, _ := config.Load(*cfgPath)
+		p := protocol.NotifySendParams{TTL: *ttl, Notification: protocol.Notification{
+			Title: *title, Message: *message, Severity: *severity, Category: *category,
+			URL: *link, ButtonLabel: *button, Users: splitList(*users), Source: "cli",
+		}}
+		var n protocol.Notification
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodNotifySend, p, &n); err == nil {
+			target := "all users of this PC"
+			if len(n.Users) > 0 {
+				target = strings.Join(n.Users, ", ")
+			}
+			fmt.Printf("Queued %s for %s — it appears within ~30 s (or at next sign-in), until %s.\n",
+				n.ID, target, n.ExpiresAt.Local().Format("02 Jan 15:04"))
+		}
+	case "notifications":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.NotifyListResult
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodNotifyList, nil, &res); err == nil {
 			err = printJSON(res)
 		}
 	default:
@@ -157,5 +208,55 @@ Commands:
   software   Print the installed-software inventory as JSON
   status     Ping the running service over the named pipe
   summary    Print timesheet suggestions [-date YYYY-MM-DD] [-user DOMAIN\user]
+  asset      Show the PC's serial number / asset identity [-json]
+  set-asset-tag <TAG>   Store IT's asset tag on this PC (empty TAG clears it)
+  notify     Send a notification to users of this PC (admin):
+               -title "..." -message "..." [-severity info|warning|critical]
+               [-url https://...] [-button "Open"] [-users "DOMAIN\a,DOMAIN\b"] [-ttl 24h]
+  notifications  List notifications and who has seen them (admin)
 `, config.Version)
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func printIdentity(id protocol.AssetIdentity) {
+	host, _ := os.Hostname()
+	kind := "Branded PC (BIOS serial)"
+	if id.IsCustomBuild {
+		kind = "Custom-built PC (no BIOS serial — using fallback)"
+	}
+	row := func(k, v string) {
+		if v != "" {
+			fmt.Printf("  %-22s %s\n", k, v)
+		}
+	}
+	fmt.Println()
+	row("Computer name:", host)
+	row("Type:", kind)
+	row("Chassis:", id.ChassisType)
+	fmt.Println()
+	row("SERIAL NUMBER:", id.SerialNumber)
+	row("  source:", id.SerialSource)
+	row("ASSET TAG:", id.AssetTag)
+	row("  source:", id.AssetTagSource)
+	row("Hardware ID:", id.HardwareFingerprint)
+	fmt.Println()
+	fmt.Println("  Raw identifiers:")
+	row("BIOS serial:", id.BIOSSerial)
+	row("Chassis serial:", id.EnclosureSerial)
+	row("Motherboard:", strings.TrimSpace(id.BaseboardManufacturer+" "+id.BaseboardProduct))
+	row("Motherboard serial:", id.BaseboardSerial)
+	row("SMBIOS UUID:", id.SMBIOSUUID)
+	row("Boot disk serial:", id.BootDiskSerial)
+	row("Onboard MAC:", id.PrimaryMAC)
+	row("Windows MachineGuid:", id.MachineGUID)
+	fmt.Println()
 }
