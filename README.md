@@ -86,43 +86,47 @@ The **iMaker Endpoint Agent** is a lightweight, high-performance background serv
 
 ## 📂 Project Repository Structure
 
+```
 iMaker-Group-Endpoint-Agent/
-├── .github/
-│   └── workflows/
-│       └── build.yml             # GitHub Actions auto-build & release workflow
+├── .github/workflows/build.yml   # CI: test + build on Windows; publishes release .exe files on v* tags
 ├── cmd/
-│   ├── agent-tray/               # User-space tray application entry point
-│   │   └── main.go
-│   └── agent-service/            # Windows SYSTEM background service entry point
-│       └── main.go
+│   ├── agent/                    # ImakerTrayApp.exe — user-space tray app (+ assets/icon.ico)
+│   └── service/                  # ImakerAgentService.exe — SYSTEM service + admin CLI
+├── internal/
+│   ├── config/                   # agent.json loader, defaults, paths, build version
+│   ├── logging/                  # structured JSON logs with file rotation
+│   └── service/                  # service core: RPC handlers, schedulers, install/uninstall
 ├── pkg/
-│   ├── activity/                 # Window title polling & idle detection
-│   ├── filewatcher/              # Dropbox file save listener
-│   ├── telemetry/                # WMI, CPU, RAM, Disk SMART & BitLocker
-│   ├── registry/                 # Installed software inventory scanner
-│   ├── deployment/               # Hash verification, installer runner, rename/reboot
-│   └── ipc/                      # Named Pipes client/server communication
-├── go.mod
-├── go.sum
-└── README.md                     # Project documentation & specification
+│   ├── protocol/                 # shared JSON contracts (sessions, telemetry, JSON-RPC) for IPC & Odoo API
+│   ├── tracker/                  # window polling, idle detection, Dropbox watcher, browser privacy filter, sessions
+│   ├── telemetry/                # WMI: CPU/RAM/GPU, disk SMART/NVMe, BitLocker, Defender/AV, updates, software registry
+│   ├── store/                    # offline JSONL storage + durable outbox
+│   └── ipc/                      # named-pipe JSON-RPC server/client with token-verified callers
+├── configs/agent.example.json    # default configuration
+├── docs/DEVELOPER_GUIDE.md       # build, install, test, data locations, design notes
+├── build.ps1                     # local Windows build script
+├── go.mod / go.sum
+└── README.md
+```
 
+> 🛠️ **Build, install & test instructions:** see [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md).
 
 ---
 
 ## 📅 Development Phases & Roadmap
 
-### Phase 1: Core Activity Tracking (`TrayApp`) — [Completed / In Progress]
+### Phase 1: Core Activity Tracking (`TrayApp`) — ✅ Completed
 - [x] Create Go module & project folder layout.
 - [x] Implement Active Window Title Listener (`GetForegroundWindow`).
 - [x] Implement Idle Time Detector (`GetLastInputInfo`).
 - [x] Implement Dropbox file watcher for `.rvt`, `.dwg`, `.max`, `.skp`.
-- [x] Build local SQLite / JSON buffer for offline activity queuing.
+- [x] Build local JSON (JSONL) buffer for offline activity queuing.
 
-### Phase 2: Hardware Telemetry & System Service (`SystemService`)
-- [ ] Implement Windows Service wrapper (`golang.org/x/sys/windows/svc`).
-- [ ] Build WMI / Win32 collectors for CPU, RAM, NVMe SMART status, and BitLocker.
-- [ ] Build Registry scanner for installed software.
-- [ ] Establish Named Pipes IPC connection between Service and TrayApp.
+### Phase 2: Hardware Telemetry & System Service (`SystemService`) — ✅ Completed
+- [x] Implement Windows Service wrapper (`golang.org/x/sys/windows/svc`).
+- [x] Build WMI / Win32 collectors for CPU, RAM, NVMe SMART status, and BitLocker.
+- [x] Build Registry scanner for installed software.
+- [x] Establish Named Pipes IPC connection between Service and TrayApp.
 
 ### Phase 3: Targeted Deployment & Command Execution Engine
 - [ ] Implement safe `Restart` and `Rename PC` handlers.

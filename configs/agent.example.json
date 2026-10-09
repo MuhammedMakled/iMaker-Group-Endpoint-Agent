@@ -1,0 +1,79 @@
+{
+  "poll_interval": "2s",
+  "idle_threshold": "5m0s",
+  "min_session_duration": "15s",
+  "max_heartbeat_gap": "30s",
+  "project_code_patterns": [
+    "(?:^|[^A-Za-z0-9])(P-[A-Z0-9]+)(?:[^A-Za-z0-9]|$)"
+  ],
+  "watch_paths": null,
+  "auto_discover_dropbox": true,
+  "watched_extensions": [
+    ".dwg",
+    ".rvt",
+    ".rfa",
+    ".max",
+    ".skp",
+    ".layout"
+  ],
+  "file_event_debounce": "3s",
+  "track_browsers": true,
+  "work_domains": [
+    "imaker-group.co",
+    "odoo.com",
+    "dropbox.com",
+    "autodesk.com",
+    "acc.autodesk.com",
+    "sketchup.com",
+    "chaos.com",
+    "office.com",
+    "sharepoint.com",
+    "teams.microsoft.com"
+  ],
+  "personal_domains": [
+    "gmail.com",
+    "mail.google.com",
+    "outlook.live.com",
+    "yahoo.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "netflix.com",
+    "youtube.com",
+    "whatsapp.com",
+    "web.whatsapp.com"
+  ],
+  "work_title_keywords": {
+    "Autodesk": "autodesk.com",
+    "Dropbox": "dropbox.com",
+    "Odoo": "odoo",
+    "SharePoint": "sharepoint.com"
+  },
+  "personal_title_keywords": [
+    "Gmail",
+    "WhatsApp",
+    "Facebook",
+    "Instagram",
+    "YouTube",
+    "Netflix",
+    "Bank",
+    "Banking",
+    "Emirates NBD",
+    "ADCB",
+    "FAB ",
+    "Mashreq"
+  ],
+  "record_unlisted_domains": false,
+  "allow_user_pause": true,
+  "max_pause": "1h0m0s",
+  "allow_user_quit": false,
+  "submit_interval": "30s",
+  "round_to_minutes": 15,
+  "telemetry_interval": "6h0m0s",
+  "software_interval": "24h0m0s",
+  "telemetry_refresh_min_gap": "1m0s",
+  "collect_windows_update_history": true,
+  "pipe_name": "\\\\.\\pipe\\imaker_agent_ipc",
+  "retention_days": 90,
+  "log_level": "info"
+}
