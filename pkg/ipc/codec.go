@@ -46,19 +46,40 @@ func WithCaller(ctx context.Context, c Caller) context.Context {
 	return context.WithValue(ctx, callerKey{}, c)
 }
 
+type authUserKey struct{}
+
+// AuthUserFrom returns the authenticated global-admin session user, if any.
+func AuthUserFrom(ctx context.Context) string {
+	u, _ := ctx.Value(authUserKey{}).(string)
+	return u
+}
+
+// WithAuthUser records the validated global-admin session user on ctx.
+func WithAuthUser(ctx context.Context, user string) context.Context {
+	return context.WithValue(ctx, authUserKey{}, user)
+}
+
 // HandlerFunc handles one RPC method. Return *protocol.RPCError for typed errors.
 type HandlerFunc func(ctx context.Context, params json.RawMessage) (any, error)
 
 type route struct {
-	h         HandlerFunc
-	adminOnly bool
+	h          HandlerFunc
+	adminOnly  bool
+	privileged bool // additionally requires a valid global-admin session
 }
 
 // Mux routes JSON-RPC methods to handlers.
+// SessionValidator validates a global-admin session token (implemented by
+// auth.Manager). It is consulted for privileged methods.
+type SessionValidator interface {
+	Validate(token string) (user string, ok bool)
+}
+
 type Mux struct {
-	mu     sync.RWMutex
-	routes map[string]route
-	log    *slog.Logger
+	mu       sync.RWMutex
+	routes   map[string]route
+	log      *slog.Logger
+	sessions SessionValidator
 }
 
 func NewMux(log *slog.Logger) *Mux {
@@ -74,6 +95,23 @@ func (m *Mux) Handle(method string, h HandlerFunc) { m.add(method, h, false) }
 // HandleAdmin registers a method that requires an elevated admin or SYSTEM
 // caller. Phase 3 actions (restart, rename, deploy) must use this.
 func (m *Mux) HandleAdmin(method string, h HandlerFunc) { m.add(method, h, true) }
+
+// HandlePrivileged registers a method requiring BOTH an elevated Windows admin
+// and a valid global-admin session (the login layer). Use for destructive or
+// system-changing actions: reset, rename, create-user, service control,
+// startup toggles, process kill, Bluetooth, etc.
+func (m *Mux) HandlePrivileged(method string, h HandlerFunc) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.routes[method] = route{h: h, adminOnly: true, privileged: true}
+}
+
+// SetSessions installs the global-admin session validator.
+func (m *Mux) SetSessions(v SessionValidator) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessions = v
+}
 
 func (m *Mux) add(method string, h HandlerFunc, admin bool) {
 	m.mu.Lock()
@@ -124,6 +162,22 @@ func (m *Mux) dispatch(ctx context.Context, line []byte) (resp protocol.RPCRespo
 		m.log.Warn("unauthorized ipc call", "method", req.Method, "user", caller.User, "pid", caller.PID)
 		resp.Error = &protocol.RPCError{Code: protocol.ErrUnauthorized, Message: "administrator privileges required"}
 		return
+	}
+	if r.privileged {
+		m.mu.RLock()
+		sv := m.sessions
+		m.mu.RUnlock()
+		authUser := ""
+		if sv != nil {
+			authUser, _ = sv.Validate(req.Auth)
+		}
+		if authUser == "" {
+			m.log.Warn("privileged call without valid session", "method", req.Method, "user", caller.User)
+			resp.Error = &protocol.RPCError{Code: protocol.ErrUnauthorized,
+				Message: "global admin login required: run `ImakerAgentService login` first"}
+			return
+		}
+		ctx = WithAuthUser(ctx, authUser)
 	}
 
 	defer func() {
@@ -181,6 +235,9 @@ type Client struct {
 	dial    Dialer
 	nextID  atomic.Int64
 	Timeout time.Duration
+	// Token, when set, is sent as the auth field on every request (for
+	// privileged methods). Set it from a stored login session.
+	Token string
 }
 
 func NewClientWithDialer(d Dialer) *Client {
@@ -203,7 +260,7 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		_ = conn.SetDeadline(dl)
 	}
 
-	req := protocol.RPCRequest{JSONRPC: protocol.JSONRPCVersion, ID: c.nextID.Add(1), Method: method}
+	req := protocol.RPCRequest{JSONRPC: protocol.JSONRPCVersion, ID: c.nextID.Add(1), Method: method, Auth: c.Token}
 	if params != nil {
 		b, err := json.Marshal(params)
 		if err != nil {

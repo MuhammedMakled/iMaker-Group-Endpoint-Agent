@@ -15,6 +15,8 @@ type RPCRequest struct {
 	ID      int64           `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Auth carries a global-admin session token for privileged methods.
+	Auth string `json:"auth,omitempty"`
 }
 
 type RPCResponse struct {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/internal/config"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/auth"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/store"
@@ -61,6 +62,10 @@ type Core struct {
 
 	exec     ActionExecutor // nil on non-Windows / in tests without actions
 	auditLog *auditLog
+
+	cred    *auth.CredentialStore
+	authMgr *auth.Manager
+	control ControlProvider
 }
 
 // NewCore opens the stores under dataDir (normally %ProgramData%\Imaker\data).
@@ -83,6 +88,9 @@ func NewCore(cfg *config.Config, log *slog.Logger, src TelemetrySource, dataDir 
 	if c.auditLog, err = newAuditLog(filepath.Join(dataDir, "audit")); err != nil {
 		return nil, err
 	}
+	if err = c.setupAuth(filepath.Join(dataDir, "security")); err != nil {
+		return nil, err
+	}
 	c.loadCached()
 	return c, nil
 }
@@ -102,6 +110,8 @@ func (c *Core) Register(m *ipc.Mux) {
 	m.HandleAdmin(protocol.MethodNotifyList, c.handleNotifyList)
 	m.Handle(protocol.MethodPerformanceGet, c.handlePerformance)
 	c.registerActions(m)
+	c.registerAuth(m)
+	c.registerControl(m)
 	// Phase 3: m.HandleAdmin("action.restart", ...), "action.rename", "deploy.install"
 }
 
@@ -159,6 +169,7 @@ func (c *Core) refreshTelemetry(ctx context.Context) protocol.TelemetrySnapshot 
 	}
 	_ = c.telemHist.Append(snap.CollectedAt, snap)
 	c.log.Info("telemetry collected", "ms", snap.DurationMs, "errors", len(snap.Errors))
+	c.CheckLocalAdmins(snap)
 	if fired := EvaluateHealth(c.Notify, HealthAlertConfig{
 		Enabled:           c.cfg.HealthAlerts,
 		RestartAfterHours: c.cfg.RestartReminderAfter.D().Hours(),

@@ -57,9 +57,12 @@ func (c *Core) registerActions(m *ipc.Mux) {
 	if c.exec == nil {
 		return // non-Windows build / tests without an executor
 	}
-	m.HandleAdmin(protocol.MethodActionRename, c.handleRename)
-	m.HandleAdmin(protocol.MethodActionCreateUser, c.handleCreateUser)
-	m.HandleAdmin(protocol.MethodActionReset, c.handleReset)
+	// Destructive / system-changing actions require the global-admin login
+	// session (HandlePrivileged) on top of the Windows admin check.
+	m.HandlePrivileged(protocol.MethodActionRename, c.handleRename)
+	m.HandlePrivileged(protocol.MethodActionCreateUser, c.handleCreateUser)
+	m.HandlePrivileged(protocol.MethodActionReset, c.handleReset)
+	// The audit log is read-only; admin is enough.
 	m.HandleAdmin(protocol.MethodActionListAudit, c.handleAuditLog)
 }
 

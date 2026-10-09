@@ -69,6 +69,7 @@
   "allow_user_quit": false,
   "submit_interval": "30s",
   "round_to_minutes": 15,
+  "admin_idle_timeout": "15m0s",
   "notification_poll_interval": "30s",
   "toast_app_id": "IMAKER.EndpointAgent",
   "health_alerts": true,
@@ -78,6 +79,8 @@
   "software_interval": "24h0m0s",
   "telemetry_refresh_min_gap": "1m0s",
   "collect_windows_update_history": true,
+  "detect_public_ip": true,
+  "public_ip_endpoint": "https://api.ipify.org",
   "pipe_name": "\\\\.\\pipe\\imaker_agent_ipc",
   "retention_days": 90,
   "log_level": "info"

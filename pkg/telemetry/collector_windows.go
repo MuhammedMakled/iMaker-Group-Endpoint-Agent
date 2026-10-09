@@ -40,6 +40,8 @@ type Collector struct {
 	// IncludeUpdateHistory queries the Windows Update Agent COM API for the
 	// last successful install (adds ~1–3 s).
 	IncludeUpdateHistory bool
+	// PublicIPEndpoint, when non-empty, is queried for the machine's public IP.
+	PublicIPEndpoint string
 }
 
 type section struct {
@@ -70,6 +72,12 @@ func (c *Collector) Collect(ctx context.Context) protocol.TelemetrySnapshot {
 		{"volumes", collectVolumes},
 		{"monitors", collectMonitors},
 		{"network", collectNetwork},
+		{"public_ip", func(s *protocol.TelemetrySnapshot) error {
+			if c.PublicIPEndpoint == "" {
+				return nil
+			}
+			return collectPublicIP(s, c.PublicIPEndpoint)
+		}},
 		{"battery", collectBattery},
 		{"licensing", collectLicensing},
 		{"local_admins", collectLocalAdmins},

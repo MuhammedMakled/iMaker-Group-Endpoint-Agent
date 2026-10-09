@@ -141,6 +141,15 @@ iMaker-Group-Endpoint-Agent/
 - [x] Remote reset/wipe via Windows' own reset engine, with layered safeguards (admin-only, hostname-bound confirmation, safe-by-default dry run, audit).
 - [x] Tamper-evident audit log of every administrative action. See [SECURITY.md](SECURITY.md) and [docs/ADMIN_ACTIONS.md](docs/ADMIN_ACTIONS.md).
 
+### v1.3: Global admin login, network, system control — ✅ Completed
+- [x] **Global admin password** (Argon2id) gating every powerful action + uninstall; idle-timeout sessions; brute-force lockout.
+- [x] Full network view: IPv4/IPv6, private + public IP, LAN/Wi-Fi MACs, DNS, gateway, DHCP, link speed, adapter type.
+- [x] Services: list + start/stop/restart (critical services protected).
+- [x] Startup apps: list + enable/disable. Processes: list + end task.
+- [x] Bluetooth on/off.
+- [x] Tamper protection: password-gated uninstall, auto-restart, new-admin-account alerts.
+- [x] See [docs/SECURITY_AND_CONTROL.md](docs/SECURITY_AND_CONTROL.md) and [SECURITY.md](SECURITY.md).
+
 ### Phase 3: Targeted Deployment & Command Execution Engine
 - [x] Rename PC handler (safe restart handler: pending).
 - [ ] Implement SHA-256 installer download and hash validation module.

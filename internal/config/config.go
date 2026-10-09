@@ -86,6 +86,9 @@ type Config struct {
 	// Timesheet suggestions
 	RoundToMinutes int `json:"round_to_minutes"`
 
+	// Security / global admin
+	AdminIdleTimeout Duration `json:"admin_idle_timeout"` // re-prompt after this idle time
+
 	// Notifications
 	NotificationPollInterval Duration `json:"notification_poll_interval"`
 	ToastAppID               string   `json:"toast_app_id"`
@@ -98,6 +101,8 @@ type Config struct {
 	SoftwareInterval            Duration `json:"software_interval"`
 	TelemetryRefreshMinGap      Duration `json:"telemetry_refresh_min_gap"`
 	CollectWindowsUpdateHistory bool     `json:"collect_windows_update_history"`
+	DetectPublicIP              bool     `json:"detect_public_ip"`
+	PublicIPEndpoint            string   `json:"public_ip_endpoint"`
 
 	// ---- Shared ----
 	PipeName      string `json:"pipe_name"`
@@ -152,6 +157,8 @@ func Default() *Config {
 
 		RoundToMinutes: 15,
 
+		AdminIdleTimeout: Duration(15 * time.Minute),
+
 		NotificationPollInterval: Duration(30 * time.Second),
 		ToastAppID:               "IMAKER.EndpointAgent",
 		HealthAlerts:             true,
@@ -161,6 +168,8 @@ func Default() *Config {
 		SoftwareInterval:            Duration(24 * time.Hour),
 		TelemetryRefreshMinGap:      Duration(60 * time.Second),
 		CollectWindowsUpdateHistory: true,
+		DetectPublicIP:              true,
+		PublicIPEndpoint:            "https://api.ipify.org",
 
 		PipeName:      DefaultPipeName,
 		RetentionDays: 90,

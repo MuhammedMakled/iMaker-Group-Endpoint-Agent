@@ -69,3 +69,36 @@ const (
 	MethodNotifyAck  = "notify.ack"
 	MethodNotifyList = "notify.list" // admin only
 )
+
+// ---- Global admin authentication (the login layer) ----
+
+const (
+	MethodAuthStatus      = "auth.status"
+	MethodAuthSetPassword = "auth.set_password"
+	MethodAuthLogin       = "auth.login"
+	MethodAuthLogout      = "auth.logout"
+)
+
+type AuthStatusResult struct {
+	PasswordSet        bool   `json:"password_set"`
+	IdleTimeoutSeconds int    `json:"idle_timeout_seconds"`
+	LockedUntil        string `json:"locked_until,omitempty"` // RFC3339 while locked out
+}
+
+type AuthSetPasswordParams struct {
+	NewPassword     string `json:"new_password"`
+	CurrentPassword string `json:"current_password,omitempty"` // required once a password exists
+}
+
+type AuthLoginParams struct {
+	Password string `json:"password"`
+}
+
+type AuthLoginResult struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type AuthLogoutParams struct {
+	Token string `json:"token"`
+}

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/internal/config"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/sysctl"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/telemetry"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/winadmin"
 )
@@ -56,14 +58,41 @@ func (winExecutor) CreateLocalUser(username, password, fullName, comment string,
 func (winExecutor) ResetCommand(scope string) []string    { return winadmin.ResetArgs(scope) }
 func (winExecutor) RunReset(scope string) (string, error) { return winadmin.RunReset(scope) }
 
+// winControl implements ControlProvider using the sysctl package.
+type winControl struct{}
+
+func (winControl) ListServices(filter string, onlyRunning bool) ([]protocol.ServiceInfo, error) {
+	return sysctl.ListServices(filter, onlyRunning)
+}
+func (winControl) ControlService(name, action string) (string, error) {
+	return sysctl.ControlService(name, action)
+}
+func (winControl) ListStartup() ([]protocol.StartupItem, error) { return sysctl.ListStartup() }
+func (winControl) ToggleStartup(id string, enable bool) error {
+	return sysctl.ToggleStartup(id, enable)
+}
+func (winControl) ListProcesses() ([]protocol.ProcessInfo, error) {
+	return sysctl.ListProcesses(runtime.NumCPU())
+}
+func (winControl) KillProcess(pid uint32, name string) error          { return sysctl.KillProcess(pid, name) }
+func (winControl) BluetoothStatus() (protocol.BluetoothStatus, error) { return sysctl.GetBluetooth() }
+func (winControl) SetBluetooth(on bool) (protocol.BluetoothStatus, error) {
+	return sysctl.SetBluetooth(on)
+}
+
 // Run starts the core (IPC server + schedulers) and blocks until ctx ends.
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	src := WindowsSource{Collector: &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory}}
+	endpoint := ""
+	if cfg.DetectPublicIP {
+		endpoint = cfg.PublicIPEndpoint
+	}
+	src := WindowsSource{Collector: &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory, PublicIPEndpoint: endpoint}}
 	core, err := NewCore(cfg, log, src, filepath.Join(config.ProgramDataDir(), "data"))
 	if err != nil {
 		return err
 	}
 	core.SetExecutor(winExecutor{})
+	core.SetControl(winControl{})
 	mux := ipc.NewMux(log)
 	core.Register(mux)
 	srv := &ipc.Server{PipeName: cfg.PipeName, Mux: mux, Logger: log}

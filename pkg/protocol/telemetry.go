@@ -23,6 +23,8 @@ type TelemetrySnapshot struct {
 	Asset         AssetIdentity    `json:"asset"`
 	Monitors      []MonitorInfo    `json:"monitors"`
 	Network       []NetworkAdapter `json:"network"`
+	PublicIP      string           `json:"public_ip,omitempty"`
+	PublicIPError string           `json:"public_ip_error,omitempty"`
 	Battery       *BatteryInfo     `json:"battery,omitempty"`
 	Licensing     LicensingInfo    `json:"licensing"`
 	LocalAdmins   []LocalAccount   `json:"local_admins"`
@@ -218,14 +220,22 @@ type MonitorInfo struct {
 	Active            bool   `json:"active"`
 }
 
-// NetworkAdapter is an IP-enabled adapter (Win32_NetworkAdapterConfiguration).
+// NetworkAdapter is one network interface with its full addressing.
 type NetworkAdapter struct {
-	Description string   `json:"description"`
-	MACAddress  string   `json:"mac_address"`
-	IPAddresses []string `json:"ip_addresses"`
-	Gateways    []string `json:"gateways,omitempty"`
-	DNSDomain   string   `json:"dns_domain,omitempty"`
-	DHCPEnabled bool     `json:"dhcp_enabled"`
+	Name          string   `json:"name"`        // connection name, e.g. "Ethernet 3", "Wi-Fi"
+	Description   string   `json:"description"` // driver/device description
+	Type          string   `json:"type"`        // Ethernet | Wireless | Virtual | Other
+	MACAddress    string   `json:"mac_address"`
+	Status        string   `json:"status"` // Connected | Disconnected | ...
+	LinkSpeedMbps uint64   `json:"link_speed_mbps,omitempty"`
+	DHCPEnabled   bool     `json:"dhcp_enabled"`
+	DHCPServer    string   `json:"dhcp_server,omitempty"`
+	IPv4Addresses []string `json:"ipv4_addresses,omitempty"`
+	IPv6Addresses []string `json:"ipv6_addresses,omitempty"`
+	Gateways      []string `json:"gateways,omitempty"`
+	DNSServers    []string `json:"dns_servers,omitempty"`
+	DNSDomain     string   `json:"dns_domain,omitempty"`
+	IsPhysical    bool     `json:"is_physical"`
 }
 
 // BatteryInfo is laptop battery health (nil on desktops).

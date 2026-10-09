@@ -70,7 +70,7 @@ func main() {
 	button := fs.String("button", "", "button label for the link (notify)")
 	users := fs.String("users", "", `comma-separated DOMAIN\user list; empty = everyone (notify)`)
 	ttl := fs.String("ttl", "72h", "how long the notification stays deliverable (notify)")
-	name := fs.String("name", "", "new computer name (rename-pc)")
+	name := fs.String("name", "", "computer name (rename-pc) / process name (kill-process)")
 	newUser := fs.String("username", "", "new local account name (create-user)")
 	pw := fs.String("password", "", "password for the new account (create-user)")
 	fullName := fs.String("fullname", "", "full name for the new account (create-user)")
@@ -82,6 +82,14 @@ func main() {
 	iUnderstand := fs.Bool("i-understand", false, "REQUIRED to actually wipe; without it, reset-pc is a dry run")
 	delaySec := fs.Int("delay", 60, "seconds before the reset starts (reset-pc)")
 	days := fs.Int("days", 30, "how many days of audit log to show (audit)")
+	svcName := fs.String("service", "", "service name (services)")
+	svcAction := fs.String("action", "", "start | stop | restart (services)")
+	onlyRunning := fs.Bool("running", false, "only running services (services)")
+	filter := fs.String("filter", "", "name filter (services/software)")
+	startupID := fs.String("id", "", "startup item id (startup)")
+	enable := fs.Bool("enable", false, "enable the startup item (startup); omit to disable")
+	pid := fs.Int("pid", 0, "process id (kill-process)")
+	btOn := fs.Bool("on", false, "turn Bluetooth on (bluetooth); omit for off")
 	_ = fs.Parse(args)
 
 	var err error
@@ -99,6 +107,10 @@ func main() {
 			fmt.Println("Installed", config.ServiceName, "— start it with: ImakerAgentService.exe start")
 		}
 	case "uninstall":
+		cfg, _ := config.Load(*cfgPath)
+		if err = requireAdminForUninstall(cfg); err != nil {
+			break
+		}
 		if err = service.Uninstall(); err == nil {
 			fmt.Println("Uninstalled", config.ServiceName)
 		}
@@ -113,7 +125,11 @@ func main() {
 		err = service.Run(ctx, cfg, log)
 	case "collect":
 		cfg, log := setup(*cfgPath, true)
-		c := &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory}
+		ep := ""
+		if cfg.DetectPublicIP {
+			ep = cfg.PublicIPEndpoint
+		}
+		c := &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory, PublicIPEndpoint: ep}
 		err = printJSON(c.Collect(context.Background()))
 	case "software":
 		err = printJSON(telemetry.CollectSoftware())
@@ -176,8 +192,11 @@ func main() {
 	case "rename-pc":
 		cfg, _ := config.Load(*cfgPath)
 		var res protocol.RenamePCResult
-		p := protocol.RenamePCParams{NewName: *name, Reason: *reason}
-		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionRename, p, &res); err == nil {
+		pp := protocol.RenamePCParams{NewName: *name, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodActionRename, pp, &res)
+		})
+		if err == nil {
 			fmt.Printf("Renamed %s -> %s. A restart is required to apply it.\n", res.OldName, res.NewName)
 		}
 	case "create-user":
@@ -190,9 +209,12 @@ func main() {
 			}
 		}
 		var res protocol.CreateLocalUserResult
-		p := protocol.CreateLocalUserParams{Username: *newUser, Password: pass, FullName: *fullName,
+		pp := protocol.CreateLocalUserParams{Username: *newUser, Password: pass, FullName: *fullName,
 			Administrator: *mkAdmin, PasswordNeverExpires: *neverExp}
-		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionCreateUser, p, &res); err == nil {
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodActionCreateUser, pp, &res)
+		})
+		if err == nil {
 			msg := "Created local user " + res.Username
 			if res.AddedToAdmins {
 				msg += " (ADDED TO ADMINISTRATORS)"
@@ -214,10 +236,103 @@ func main() {
 			}
 		}
 		var res protocol.ResetResult
-		p := protocol.ResetParams{Scope: protocol.ResetScope(*scope), Confirm: *confirm,
+		pp := protocol.ResetParams{Scope: protocol.ResetScope(*scope), Confirm: *confirm,
 			Reason: *reason, DelaySeconds: *delaySec, Execute: *iUnderstand}
-		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionReset, p, &res); err == nil {
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodActionReset, pp, &res)
+		})
+		if err == nil {
 			fmt.Println(res.Message)
+		}
+	case "services":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.ServiceListResult
+		pp := protocol.ServiceListParams{Filter: *filter, OnlyRunning: *onlyRunning}
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodServiceList, pp, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "service":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.ServiceControlResult
+		pp := protocol.ServiceControlParams{Name: *svcName, Action: *svcAction, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodServiceControl, pp, &res)
+		})
+		if err == nil {
+			fmt.Printf("%s %s -> %s\n", res.Action, res.Name, res.Status)
+		}
+	case "startup":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.StartupListResult
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodStartupList, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "startup-toggle":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.StartupToggleResult
+		pp := protocol.StartupToggleParams{ID: *startupID, Enable: *enable, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodStartupToggle, pp, &res)
+		})
+		if err == nil {
+			state := "disabled"
+			if res.Enabled {
+				state = "enabled"
+			}
+			fmt.Println("Startup item", state)
+		}
+	case "processes", "ps":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.ProcessListResult
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodProcessList, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "kill-process", "kill":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.ProcessKillResult
+		pp := protocol.ProcessKillParams{PID: uint32(*pid), Name: *name, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodProcessKill, pp, &res)
+		})
+		if err == nil {
+			fmt.Printf("Killed PID %d\n", res.PID)
+		}
+	case "bluetooth":
+		cfg, _ := config.Load(*cfgPath)
+		// "bluetooth" with -on/off toggles; "bluetooth-status" just reads.
+		var res protocol.BluetoothStatus
+		pp := protocol.BluetoothSetParams{On: *btOn, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodBluetoothSet, pp, &res)
+		})
+		if err == nil {
+			fmt.Println("Bluetooth is now", res.State)
+		}
+	case "bluetooth-status":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.BluetoothStatus
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodBluetoothStatus, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "set-admin-password", "set-password":
+		cfg, _ := config.Load(*cfgPath)
+		err = setAdminPasswordFlow(cfg)
+	case "login":
+		cfg, _ := config.Load(*cfgPath)
+		err = loginFlow(cfg)
+	case "logout":
+		cfg, _ := config.Load(*cfgPath)
+		tok := loadToken()
+		if tok != "" {
+			_ = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodAuthLogout, protocol.AuthLogoutParams{Token: tok}, nil)
+		}
+		clearToken()
+		fmt.Println("Logged out.")
+	case "auth-status":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.AuthStatusResult
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodAuthStatus, nil, &res); err == nil {
+			err = printJSON(res)
 		}
 	case "audit":
 		cfg, _ := config.Load(*cfgPath)
@@ -295,6 +410,25 @@ Commands:
                    -reason "..."  [-scope remove_everything|remove_everything_clean]
                    add -i-understand to actually wipe (also retypes the name to confirm)
   audit          Show the administrative action audit log (admin) [-days N]
+
+ Global admin login (the security layer):
+  set-admin-password    Set or change the global admin password (prompted)
+  login                 Log in with the global admin password; caches a session
+  logout                End the cached session
+  auth-status           Show whether a password is set and the idle timeout
+
+ Network / performance / inventory (admin, read-only):
+  (network, battery, licensing and local-admins now appear in the collect command)
+
+ System control:
+  services              List services [-filter X] [-running]
+  service               Start/stop/restart a service (login): -service NAME -action start|stop|restart
+  startup               List startup apps
+  startup-toggle        Enable/disable a startup app (login): -id ID [-enable]
+  processes             List processes with CPU/RAM (alias: ps)
+  kill-process          End a process (login): -pid N [-name safety-check]  (alias: kill)
+  bluetooth             Turn Bluetooth on/off (login): -on to enable, omit for off
+  bluetooth-status      Show Bluetooth state
 `, config.Version)
 }
 

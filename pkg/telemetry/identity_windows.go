@@ -182,30 +182,3 @@ func collectMonitors(s *protocol.TelemetrySnapshot) error {
 	}
 	return nil
 }
-
-type win32NetworkAdapterConfiguration struct {
-	Description      string
-	MACAddress       string
-	IPAddress        []string
-	DefaultIPGateway []string
-	DNSDomain        string
-	DHCPEnabled      bool
-}
-
-func collectNetwork(s *protocol.TelemetrySnapshot) error {
-	var cfgs []win32NetworkAdapterConfiguration
-	if err := query(nsCIMV2, "SELECT * FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE", &cfgs); err != nil {
-		return err
-	}
-	for _, c := range cfgs {
-		s.Network = append(s.Network, protocol.NetworkAdapter{
-			Description: c.Description,
-			MACAddress:  c.MACAddress,
-			IPAddresses: c.IPAddress,
-			Gateways:    c.DefaultIPGateway,
-			DNSDomain:   c.DNSDomain,
-			DHCPEnabled: c.DHCPEnabled,
-		})
-	}
-	return nil
-}
