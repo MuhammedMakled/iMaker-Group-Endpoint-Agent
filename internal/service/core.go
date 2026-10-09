@@ -29,6 +29,8 @@ type TelemetrySource interface {
 	Software(ctx context.Context) protocol.SoftwareInventory
 	// Identity is the fast asset-identity lookup (serial, asset tag).
 	Identity(ctx context.Context) protocol.AssetIdentity
+	// Performance is a live utilization + top-process snapshot.
+	Performance(ctx context.Context, p protocol.PerformanceGetParams) protocol.PerformanceSnapshot
 }
 
 // Core is the service's state and business logic.
@@ -56,6 +58,9 @@ type Core struct {
 	Notify     *NotificationCenter
 	identity   *protocol.AssetIdentity
 	identityAt time.Time
+
+	exec     ActionExecutor // nil on non-Windows / in tests without actions
+	auditLog *auditLog
 }
 
 // NewCore opens the stores under dataDir (normally %ProgramData%\Imaker\data).
@@ -75,6 +80,9 @@ func NewCore(cfg *config.Config, log *slog.Logger, src TelemetrySource, dataDir 
 	if c.Notify, err = NewNotificationCenter(filepath.Join(dataDir, "notifications")); err != nil {
 		return nil, err
 	}
+	if c.auditLog, err = newAuditLog(filepath.Join(dataDir, "audit")); err != nil {
+		return nil, err
+	}
 	c.loadCached()
 	return c, nil
 }
@@ -92,6 +100,8 @@ func (c *Core) Register(m *ipc.Mux) {
 	m.Handle(protocol.MethodNotifyAck, c.handleNotifyAck)
 	m.HandleAdmin(protocol.MethodNotifySend, c.handleNotifySend)
 	m.HandleAdmin(protocol.MethodNotifyList, c.handleNotifyList)
+	m.Handle(protocol.MethodPerformanceGet, c.handlePerformance)
+	c.registerActions(m)
 	// Phase 3: m.HandleAdmin("action.restart", ...), "action.rename", "deploy.install"
 }
 
@@ -183,6 +193,9 @@ func (c *Core) loadCached() {
 		c.software = &inv
 	}
 }
+
+// SetExecutor installs the privileged-action backend (Windows only).
+func (c *Core) SetExecutor(e ActionExecutor) { c.exec = e }
 
 // ---- RPC handlers ----
 
@@ -405,6 +418,14 @@ func (c *Core) handleSoftwareList(ctx context.Context, raw json.RawMessage) (any
 	out.Items = telemetry.FilterSoftware(inv.Items, p.Filter)
 	out.Count = len(out.Items)
 	return out, nil
+}
+
+func (c *Core) handlePerformance(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p protocol.PerformanceGetParams
+	if err := ipc.DecodeParams(raw, &p); err != nil {
+		return nil, err
+	}
+	return c.src.Performance(ctx, p), nil
 }
 
 func (c *Core) handleIdentity(ctx context.Context, raw json.RawMessage) (any, error) {

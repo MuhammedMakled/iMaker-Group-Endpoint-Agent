@@ -101,3 +101,7 @@ func TestTelemetryRateLimit(t *testing.T) {
 func (f *fakeSource) Identity(context.Context) protocol.AssetIdentity {
 	return protocol.AssetIdentity{SerialNumber: "MB123456", SerialSource: "baseboard", IsCustomBuild: true}
 }
+
+func (f *fakeSource) Performance(context.Context, protocol.PerformanceGetParams) protocol.PerformanceSnapshot {
+	return protocol.PerformanceSnapshot{CPU: protocol.CPULoad{UsedPercent: 42}, ProcessCount: 7}
+}

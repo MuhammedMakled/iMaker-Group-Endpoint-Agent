@@ -134,8 +134,15 @@ iMaker-Group-Endpoint-Agent/
 - [x] Push notifications to users (Windows toasts) via `notify` CLI; per-user targeting and delivery tracking.
 - [x] Automatic health alerts: disk almost full, restart pending after updates, failing disk.
 
+### v1.2: Performance, full health, admin actions — ✅ Completed
+- [x] Live performance: CPU/RAM/disk load + top applications by CPU and memory.
+- [x] Battery health, Windows/Office licensing, local-administrator audit.
+- [x] Rename PC and create local users (admin-only, validated, audited).
+- [x] Remote reset/wipe via Windows' own reset engine, with layered safeguards (admin-only, hostname-bound confirmation, safe-by-default dry run, audit).
+- [x] Tamper-evident audit log of every administrative action. See [SECURITY.md](SECURITY.md) and [docs/ADMIN_ACTIONS.md](docs/ADMIN_ACTIONS.md).
+
 ### Phase 3: Targeted Deployment & Command Execution Engine
-- [ ] Implement safe `Restart` and `Rename PC` handlers.
+- [x] Rename PC handler (safe restart handler: pending).
 - [ ] Implement SHA-256 installer download and hash validation module.
 - [ ] Implement silent installer execution runner (`/qn`, `/silent`).
 - [ ] Add Local Mock Endpoint / CLI tester for dashboard API simulations.

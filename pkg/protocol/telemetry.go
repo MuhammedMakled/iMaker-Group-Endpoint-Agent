@@ -23,6 +23,9 @@ type TelemetrySnapshot struct {
 	Asset         AssetIdentity    `json:"asset"`
 	Monitors      []MonitorInfo    `json:"monitors"`
 	Network       []NetworkAdapter `json:"network"`
+	Battery       *BatteryInfo     `json:"battery,omitempty"`
+	Licensing     LicensingInfo    `json:"licensing"`
+	LocalAdmins   []LocalAccount   `json:"local_admins"`
 	Errors        []string         `json:"errors,omitempty"`
 }
 
@@ -223,4 +226,44 @@ type NetworkAdapter struct {
 	Gateways    []string `json:"gateways,omitempty"`
 	DNSDomain   string   `json:"dns_domain,omitempty"`
 	DHCPEnabled bool     `json:"dhcp_enabled"`
+}
+
+// BatteryInfo is laptop battery health (nil on desktops).
+type BatteryInfo struct {
+	Present           bool   `json:"present"`
+	ChargePercent     uint32 `json:"charge_percent"`
+	Status            string `json:"status"` // Charging | Discharging | Fully Charged | ...
+	ACConnected       bool   `json:"ac_connected"`
+	DesignCapacitymWh uint32 `json:"design_capacity_mwh"`
+	FullChargemWh     uint32 `json:"full_charge_capacity_mwh"`
+	// HealthPercent is FullCharge/Design: 100 = like new, lower = worn.
+	HealthPercent       float64 `json:"health_percent"`
+	CycleCount          uint32  `json:"cycle_count,omitempty"`
+	EstimatedRuntimeMin int32   `json:"estimated_runtime_min,omitempty"`
+	Chemistry           string  `json:"chemistry,omitempty"`
+}
+
+// LicensingInfo covers Windows and Office activation.
+type LicensingInfo struct {
+	WindowsActivated  bool            `json:"windows_activated"`
+	WindowsStatus     string          `json:"windows_status"` // Licensed | Notification | Unlicensed | ...
+	WindowsEdition    string          `json:"windows_edition,omitempty"`
+	WindowsPartialKey string          `json:"windows_partial_key,omitempty"` // last 5 chars only
+	WindowsChannel    string          `json:"windows_channel,omitempty"`     // Retail | Volume | OEM
+	Office            []OfficeLicense `json:"office,omitempty"`
+}
+
+type OfficeLicense struct {
+	Product    string `json:"product"`
+	Status     string `json:"status"`
+	PartialKey string `json:"partial_key,omitempty"`
+}
+
+// LocalAccount is a member of the local Administrators group.
+type LocalAccount struct {
+	Name     string `json:"name"` // DOMAIN\user or PC\user
+	SID      string `json:"sid"`
+	Type     string `json:"type"` // User | Group | Domain
+	Disabled bool   `json:"disabled"`
+	Local    bool   `json:"local"` // true = local account, false = domain
 }

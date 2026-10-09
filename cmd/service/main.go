@@ -38,6 +38,7 @@ import (
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/telemetry"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/winadmin"
 )
 
 func main() {
@@ -69,6 +70,18 @@ func main() {
 	button := fs.String("button", "", "button label for the link (notify)")
 	users := fs.String("users", "", `comma-separated DOMAIN\user list; empty = everyone (notify)`)
 	ttl := fs.String("ttl", "72h", "how long the notification stays deliverable (notify)")
+	name := fs.String("name", "", "new computer name (rename-pc)")
+	newUser := fs.String("username", "", "new local account name (create-user)")
+	pw := fs.String("password", "", "password for the new account (create-user)")
+	fullName := fs.String("fullname", "", "full name for the new account (create-user)")
+	mkAdmin := fs.Bool("admin", false, "add the new account to local Administrators (create-user)")
+	neverExp := fs.Bool("never-expires", false, "password never expires (create-user)")
+	reason := fs.String("reason", "", "reason, recorded in the audit log (rename-pc / reset-pc)")
+	confirm := fs.String("confirm", "", `reset confirmation: must be "RESET <HOSTNAME>" (reset-pc)`)
+	scope := fs.String("scope", "remove_everything", "remove_everything | remove_everything_clean (reset-pc)")
+	iUnderstand := fs.Bool("i-understand", false, "REQUIRED to actually wipe; without it, reset-pc is a dry run")
+	delaySec := fs.Int("delay", 60, "seconds before the reset starts (reset-pc)")
+	days := fs.Int("days", 30, "how many days of audit log to show (audit)")
 	_ = fs.Parse(args)
 
 	var err error
@@ -154,6 +167,65 @@ func main() {
 		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodNotifyList, nil, &res); err == nil {
 			err = printJSON(res)
 		}
+	case "performance", "perf":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.PerformanceSnapshot
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodPerformanceGet, protocol.PerformanceGetParams{}, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "rename-pc":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.RenamePCResult
+		p := protocol.RenamePCParams{NewName: *name, Reason: *reason}
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionRename, p, &res); err == nil {
+			fmt.Printf("Renamed %s -> %s. A restart is required to apply it.\n", res.OldName, res.NewName)
+		}
+	case "create-user":
+		cfg, _ := config.Load(*cfgPath)
+		pass := *pw
+		if pass == "" {
+			pass, err = readHiddenPassword("New account password: ")
+			if err != nil {
+				break
+			}
+		}
+		var res protocol.CreateLocalUserResult
+		p := protocol.CreateLocalUserParams{Username: *newUser, Password: pass, FullName: *fullName,
+			Administrator: *mkAdmin, PasswordNeverExpires: *neverExp}
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionCreateUser, p, &res); err == nil {
+			msg := "Created local user " + res.Username
+			if res.AddedToAdmins {
+				msg += " (ADDED TO ADMINISTRATORS)"
+			}
+			fmt.Println(msg)
+		}
+	case "reset-pc":
+		cfg, _ := config.Load(*cfgPath)
+		host, _ := os.Hostname()
+		if *confirm == "" {
+			*confirm = winadmin.ResetConfirmToken(host)
+			fmt.Printf("Using confirmation %q for this PC.\n", *confirm)
+		}
+		if *iUnderstand {
+			fmt.Printf("\n*** This will ERASE ALL DATA on %s and reinstall Windows. ***\n", host)
+			if !confirmInteractive(host) {
+				fmt.Println("Aborted.")
+				return
+			}
+		}
+		var res protocol.ResetResult
+		p := protocol.ResetParams{Scope: protocol.ResetScope(*scope), Confirm: *confirm,
+			Reason: *reason, DelaySeconds: *delaySec, Execute: *iUnderstand}
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionReset, p, &res); err == nil {
+			fmt.Println(res.Message)
+		}
+	case "audit":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.AuditLogResult
+		req := map[string]int{"days": *days}
+		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodActionListAudit, req, &res); err == nil {
+			err = printJSON(res)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -214,6 +286,15 @@ Commands:
                -title "..." -message "..." [-severity info|warning|critical]
                [-url https://...] [-button "Open"] [-users "DOMAIN\a,DOMAIN\b"] [-ttl 24h]
   notifications  List notifications and who has seen them (admin)
+  performance    Live CPU/RAM/disk load and the top apps by CPU and memory
+  rename-pc      Rename this PC (admin): -name NEW-NAME -reason "..."  (needs reboot)
+  create-user    Create a local account (admin):
+                   -username ali.hassan [-fullname "Ali Hassan"] [-admin] [-never-expires]
+                   (password is prompted hidden, or pass -password)
+  reset-pc       Remotely reset/WIPE this PC (admin). Dry run by default:
+                   -reason "..."  [-scope remove_everything|remove_everything_clean]
+                   add -i-understand to actually wipe (also retypes the name to confirm)
+  audit          Show the administrative action audit log (admin) [-days N]
 `, config.Version)
 }
 

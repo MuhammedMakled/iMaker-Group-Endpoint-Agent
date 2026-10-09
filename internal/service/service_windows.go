@@ -21,6 +21,7 @@ import (
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/telemetry"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/winadmin"
 )
 
 // WindowsSource adapts the telemetry package to TelemetrySource.
@@ -40,6 +41,21 @@ func (w WindowsSource) Identity(context.Context) protocol.AssetIdentity {
 	return telemetry.CollectIdentity()
 }
 
+func (w WindowsSource) Performance(ctx context.Context, p protocol.PerformanceGetParams) protocol.PerformanceSnapshot {
+	return telemetry.CollectPerformance(ctx, p)
+}
+
+// winExecutor implements ActionExecutor using the winadmin package.
+type winExecutor struct{}
+
+func (winExecutor) Hostname() string              { return osHostname() }
+func (winExecutor) RenamePC(newName string) error { return winadmin.RenamePC(newName) }
+func (winExecutor) CreateLocalUser(username, password, fullName, comment string, admin, neverExpires bool) (string, bool, error) {
+	return winadmin.CreateLocalUser(username, password, fullName, comment, admin, neverExpires)
+}
+func (winExecutor) ResetCommand(scope string) []string    { return winadmin.ResetArgs(scope) }
+func (winExecutor) RunReset(scope string) (string, error) { return winadmin.RunReset(scope) }
+
 // Run starts the core (IPC server + schedulers) and blocks until ctx ends.
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	src := WindowsSource{Collector: &telemetry.Collector{Logger: log, IncludeUpdateHistory: cfg.CollectWindowsUpdateHistory}}
@@ -47,6 +63,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	core.SetExecutor(winExecutor{})
 	mux := ipc.NewMux(log)
 	core.Register(mux)
 	srv := &ipc.Server{PipeName: cfg.PipeName, Mux: mux, Logger: log}
