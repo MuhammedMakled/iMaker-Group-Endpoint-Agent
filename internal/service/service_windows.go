@@ -19,10 +19,13 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/internal/config"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/eventlog"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/session"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/sysctl"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/telemetry"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/usbctl"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/winadmin"
 )
 
@@ -78,6 +81,36 @@ func (winControl) KillProcess(pid uint32, name string) error          { return s
 func (winControl) BluetoothStatus() (protocol.BluetoothStatus, error) { return sysctl.GetBluetooth() }
 func (winControl) SetBluetooth(on bool) (protocol.BluetoothStatus, error) {
 	return sysctl.SetBluetooth(on)
+}
+func (winControl) LockSession(id uint32) (protocol.SessionActionResult, error) {
+	sid, user, err := session.LockSession(id)
+	return protocol.SessionActionResult{SessionID: sid, User: user, Done: err == nil}, err
+}
+func (winControl) SignoutSession(id uint32) (protocol.SessionActionResult, error) {
+	sid, user, err := session.SignoutSession(id)
+	return protocol.SessionActionResult{SessionID: sid, User: user, Done: err == nil}, err
+}
+func (winControl) ListSessions() ([]protocol.UserSession, error) { return session.ListSessions() }
+func (winControl) USBStatus() (protocol.USBStatus, error)        { return usbctl.Status() }
+func (winControl) USBSet(mode string) (protocol.USBStatus, error) {
+	if err := usbctl.ValidateMode(mode); err != nil {
+		return protocol.USBStatus{}, err
+	}
+	return usbctl.Set(mode)
+}
+func (winControl) QuerySecurityEvents(since time.Time) ([]EscalationEvent, error) {
+	evs, err := eventlog.Query(since)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EscalationEvent, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, EscalationEvent{
+			EventID: e.EventID, Time: e.Time, TargetUser: e.TargetUser, GroupName: e.GroupName,
+			SubjectUser: e.SubjectUser, Privileged: e.IsPrivilegedGroupEvent(), Description: e.Description,
+		})
+	}
+	return out, nil
 }
 
 // Run starts the core (IPC server + schedulers) and blocks until ctx ends.
@@ -225,6 +258,11 @@ func Install(exePath, trayPath string) error {
 		if err := setTrayAutostart(trayPath); err != nil {
 			fmt.Fprintln(os.Stderr, "warning: register tray autostart:", err)
 		}
+	}
+	// Enable the audit policy so account-escalation events (4720/4728/4732)
+	// are generated for the escalation watcher. Best-effort.
+	if err := eventlog.EnableAuditPolicy(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not enable account-management audit policy:", err)
 	}
 	return nil
 }

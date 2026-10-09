@@ -150,6 +150,13 @@ iMaker-Group-Endpoint-Agent/
 - [x] Tamper protection: password-gated uninstall, auto-restart, new-admin-account alerts.
 - [x] See [docs/SECURITY_AND_CONTROL.md](docs/SECURITY_AND_CONTROL.md) and [SECURITY.md](SECURITY.md).
 
+### v1.4: Remote lock/sign-out, USB control, escalation alerting — ✅ Completed
+- [x] Remote **lock** (LockWorkStation via CreateProcessAsUser) and **sign-out** (WTSLogoffSession); session list.
+- [x] **USB / removable storage control**: allow / read-only / block (USBSTOR Start + WriteProtect).
+- [x] **Escalation alerting**: watches Security log 4720/4728/4732/4756, cross-checks the audit log, critical alert on unauthorized account creation / admin grant; audit policy auto-enabled on install.
+- [x] **IP allowlist** rules (CIDR matcher) for the Phase-3 remote uplink.
+- [x] See [docs/ENDPOINT_SECURITY_v1.4.md](docs/ENDPOINT_SECURITY_v1.4.md).
+
 ### Phase 3: Targeted Deployment & Command Execution Engine
 - [x] Rename PC handler (safe restart handler: pending).
 - [ ] Implement SHA-256 installer download and hash validation module.

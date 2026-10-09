@@ -17,6 +17,7 @@ import (
 
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/internal/config"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/auth"
+	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipallow"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/store"
@@ -66,6 +67,8 @@ type Core struct {
 	cred    *auth.CredentialStore
 	authMgr *auth.Manager
 	control ControlProvider
+	ipAllow *ipallow.List
+	stopCh  chan struct{}
 }
 
 // NewCore opens the stores under dataDir (normally %ProgramData%\Imaker\data).
@@ -91,6 +94,11 @@ func NewCore(cfg *config.Config, log *slog.Logger, src TelemetrySource, dataDir 
 	if err = c.setupAuth(filepath.Join(dataDir, "security")); err != nil {
 		return nil, err
 	}
+	if c.ipAllow, err = ipallow.Parse(cfg.AllowedCommandIPs); err != nil {
+		log.Warn("invalid allowed_command_ips; ignoring", "err", err)
+		c.ipAllow, _ = ipallow.Parse(nil)
+	}
+	c.stopCh = make(chan struct{})
 	c.loadCached()
 	return c, nil
 }
@@ -118,6 +126,7 @@ func (c *Core) Register(m *ipc.Mux) {
 // RunSchedulers collects telemetry/software on their intervals and prunes
 // old data daily. Blocks until ctx is cancelled.
 func (c *Core) RunSchedulers(ctx context.Context) {
+	defer close(c.stopCh)
 	// Stagger the first run so boot isn't slowed down.
 	select {
 	case <-ctx.Done():
@@ -134,6 +143,9 @@ func (c *Core) RunSchedulers(ctx context.Context) {
 	defer st.Stop()
 	defer pt.Stop()
 	c.prune()
+	if c.cfg.EventLogMonitor {
+		go c.runEscalationWatcher(c.stopCh)
+	}
 	for {
 		select {
 		case <-ctx.Done():

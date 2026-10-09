@@ -88,6 +88,10 @@ type Config struct {
 
 	// Security / global admin
 	AdminIdleTimeout Duration `json:"admin_idle_timeout"` // re-prompt after this idle time
+	// Escalation monitoring + IP allowlist (v1.4)
+	EventLogMonitor      bool     `json:"event_log_monitor"` // watch Security log for 4720/4728/4732
+	EventLogPollInterval Duration `json:"event_log_poll_interval"`
+	AllowedCommandIPs    []string `json:"allowed_command_ips"` // for the Phase-3 remote uplink
 
 	// Notifications
 	NotificationPollInterval Duration `json:"notification_poll_interval"`
@@ -157,7 +161,9 @@ func Default() *Config {
 
 		RoundToMinutes: 15,
 
-		AdminIdleTimeout: Duration(15 * time.Minute),
+		AdminIdleTimeout:     Duration(15 * time.Minute),
+		EventLogMonitor:      true,
+		EventLogPollInterval: Duration(10 * time.Minute),
 
 		NotificationPollInterval: Duration(30 * time.Second),
 		ToastAppID:               "IMAKER.EndpointAgent",

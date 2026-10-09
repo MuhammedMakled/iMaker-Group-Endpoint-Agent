@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/ipc"
 	"github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/pkg/protocol"
@@ -12,6 +13,8 @@ type fakeControl struct {
 	stopped   string
 	killedPID uint32
 	btOn      bool
+	usbSet    string
+	events    []EscalationEvent
 }
 
 func (f *fakeControl) ListServices(filter string, onlyRunning bool) ([]protocol.ServiceInfo, error) {
@@ -116,5 +119,63 @@ func TestNewAdminAlert(t *testing.T) {
 	c.CheckLocalAdmins(snap)
 	if n := c.Notify.Pending(`IMAKER\ali`); len(n) != 0 {
 		t.Fatalf("should not re-alert for the same admin: %+v", n)
+	}
+}
+
+func (f *fakeControl) LockSession(id uint32) (protocol.SessionActionResult, error) {
+	return protocol.SessionActionResult{SessionID: 1, User: `IMAKER\ali`, Done: true}, nil
+}
+func (f *fakeControl) SignoutSession(id uint32) (protocol.SessionActionResult, error) {
+	return protocol.SessionActionResult{SessionID: 1, User: `IMAKER\ali`, Done: true}, nil
+}
+func (f *fakeControl) ListSessions() ([]protocol.UserSession, error) {
+	return []protocol.UserSession{{SessionID: 1, User: `IMAKER\ali`, State: "Active"}}, nil
+}
+func (f *fakeControl) USBStatus() (protocol.USBStatus, error) {
+	return protocol.USBStatus{Mode: protocol.USBAllow, StorageEnabled: true}, nil
+}
+func (f *fakeControl) usbMode() string { return f.usbSet }
+func (f *fakeControl) USBSet(mode string) (protocol.USBStatus, error) {
+	f.usbSet = mode
+	return protocol.USBStatus{Mode: mode}, nil
+}
+func (f *fakeControl) QuerySecurityEvents(since time.Time) ([]EscalationEvent, error) {
+	return f.events, nil
+}
+
+func TestEscalationAlerting(t *testing.T) {
+	c, _ := newCoreWithExec(t)
+	fc := &fakeControl{}
+	c.SetControl(fc)
+	admin := ipc.Caller{User: `IMAKER\it`, IsAdmin: true}
+
+	// The agent legitimately creates "ali" (audited).
+	if _, err := call(t, c.handleCreateUser, admin, protocol.CreateLocalUserParams{
+		Username: "ali", Password: "Str0ng-Pass!", Administrator: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	fc.events = []EscalationEvent{
+		// Authorized: matches the audited create_local_user for "ali".
+		{EventID: 4720, Time: now, TargetUser: `IMAKER\ali`, SubjectUser: `IMAKER\it`},
+		// Unauthorized: a user created with no matching audit entry.
+		{EventID: 4720, Time: now, TargetUser: `PC\sneaky`, SubjectUser: `PC\attacker`},
+		// Unauthorized admin escalation.
+		{EventID: 4732, Time: now, TargetUser: `PC\bob`, GroupName: "Administrators", SubjectUser: `PC\attacker`, Privileged: true},
+	}
+	c.checkEscalation(now.Add(-time.Hour))
+
+	pending := c.Notify.Pending(`IMAKER\ali`)
+	// Two alerts: sneaky (created) + bob (escalated). "ali" was authorized.
+	if len(pending) != 2 {
+		t.Fatalf("expected 2 escalation alerts, got %d: %+v", len(pending), pending)
+	}
+	for _, p := range pending {
+		if p.Severity != protocol.SeverityCritical {
+			t.Errorf("escalation alerts must be critical: %+v", p)
+		}
+		if strings.Contains(p.Message, "ali") {
+			t.Error("authorized account should not alert")
+		}
 	}
 }

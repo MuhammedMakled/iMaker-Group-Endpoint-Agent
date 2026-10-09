@@ -90,6 +90,9 @@ func main() {
 	enable := fs.Bool("enable", false, "enable the startup item (startup); omit to disable")
 	pid := fs.Int("pid", 0, "process id (kill-process)")
 	btOn := fs.Bool("on", false, "turn Bluetooth on (bluetooth); omit for off")
+	sessID := fs.Int("session", 0, "target session id (lock/signout; 0 = active console)")
+	usbMode := fs.String("mode", "", "allow | read_only | block (usb)")
+	checkIP := fs.String("ip", "", "IP to test against the allowlist (ipallow-check)")
 	_ = fs.Parse(args)
 
 	var err error
@@ -314,6 +317,61 @@ func main() {
 		if err = authedClient(cfg).Call(context.Background(), protocol.MethodBluetoothStatus, nil, &res); err == nil {
 			err = printJSON(res)
 		}
+	case "lock", "lock-workstation":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.SessionActionResult
+		pp := protocol.SessionActionParams{SessionID: uint32(*sessID), Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodSessionLock, pp, &res)
+		})
+		if err == nil {
+			fmt.Printf("Locked session %d (%s)\n", res.SessionID, res.User)
+		}
+	case "signout", "signout-user", "logoff":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.SessionActionResult
+		pp := protocol.SessionActionParams{SessionID: uint32(*sessID), Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodSessionSignout, pp, &res)
+		})
+		if err == nil {
+			fmt.Printf("Signed out session %d (%s)\n", res.SessionID, res.User)
+		}
+	case "sessions":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.SessionListResult
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodSessionList, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "usb-status":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.USBStatus
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodUSBStatus, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "usb":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.USBStatus
+		pp := protocol.USBSetParams{Mode: *usbMode, Reason: *reason}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodUSBSet, pp, &res)
+		})
+		if err == nil {
+			fmt.Println("USB storage mode:", res.Mode, "-", res.Detail)
+		}
+	case "ipallow":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.IPAllowStatus
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodIPAllowStatus, nil, &res); err == nil {
+			err = printJSON(res)
+		}
+	case "ipallow-check":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.IPAllowCheckResult
+		pp := protocol.IPAllowCheckParams{IP: *checkIP}
+		if err = authedClient(cfg).Call(context.Background(), protocol.MethodIPAllowCheck, pp, &res); err == nil {
+			err = printJSON(res)
+		}
 	case "set-admin-password", "set-password":
 		cfg, _ := config.Load(*cfgPath)
 		err = setAdminPasswordFlow(cfg)
@@ -429,6 +487,13 @@ Commands:
   kill-process          End a process (login): -pid N [-name safety-check]  (alias: kill)
   bluetooth             Turn Bluetooth on/off (login): -on to enable, omit for off
   bluetooth-status      Show Bluetooth state
+  lock                  Lock the user's screen (login): [-session N]
+  signout               Sign the user out (login): [-session N]
+  sessions              List interactive user sessions
+  usb-status            Show USB storage access (allow/read_only/block)
+  usb                   Set USB storage access (login): -mode allow|read_only|block
+  ipallow               Show the IP allowlist (for the Phase-3 remote uplink)
+  ipallow-check         Test an IP against the allowlist: -ip 203.0.113.5
 `, config.Version)
 }
 
