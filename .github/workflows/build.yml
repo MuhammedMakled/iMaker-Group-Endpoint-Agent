@@ -14,10 +14,10 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.22"
+          go-version: "1.26.9"
       - name: Resolve modules
         run: go mod tidy
       - name: Vet & test
@@ -33,10 +33,12 @@ jobs:
     needs: test
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.22"
+          go-version: "1.26.9"
+      - name: Resolve modules
+        run: go mod tidy
       - name: Build
         shell: pwsh
         run: |
@@ -62,10 +64,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.22"
+          go-version: "1.26.9"
+      - name: Resolve modules
+        run: go mod tidy
       - name: Build
         shell: pwsh
         run: |
