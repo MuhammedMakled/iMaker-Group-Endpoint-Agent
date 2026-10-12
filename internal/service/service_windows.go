@@ -126,6 +126,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	core.SetExecutor(winExecutor{})
 	core.SetControl(winControl{})
+	core.SetUpdater(winUpdater{})
 	mux := ipc.NewMux(log)
 	core.Register(mux)
 	srv := &ipc.Server{PipeName: cfg.PipeName, Mux: mux, Logger: log}
@@ -135,6 +136,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); errCh <- srv.Serve(ctx) }()
 	go func() { defer wg.Done(); core.RunSchedulers(ctx) }()
+	core.MarkHealthy() // lets a pending self-update know this version started
 
 	select {
 	case <-ctx.Done():

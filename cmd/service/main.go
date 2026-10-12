@@ -56,6 +56,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	if cmd == "apply-update" {
+		// Hidden: run by updates\updater.exe after the service accepts an upgrade.
+		os.Exit(runApplyUpdate())
+	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "path to agent.json")
 	tray := fs.String("tray", "", "path to ImakerTrayApp.exe to auto-start at logon (install)")
@@ -93,6 +97,9 @@ func main() {
 	sessID := fs.Int("session", 0, "target session id (lock/signout; 0 = active console)")
 	usbMode := fs.String("mode", "", "allow | read_only | block (usb)")
 	checkIP := fs.String("ip", "", "IP to test against the allowlist (ipallow-check)")
+	dlURL := fs.String("download-url", "", "https .zip bundle URL (upgrade-agent)")
+	dlVersion := fs.String("target-version", "", "version to install, e.g. 1.5.0 (upgrade-agent)")
+	dlSHA := fs.String("sha256", "", "SHA-256 of the zip bundle, 64 hex characters (upgrade-agent)")
 	_ = fs.Parse(args)
 
 	var err error
@@ -191,6 +198,17 @@ func main() {
 		var res protocol.PerformanceSnapshot
 		if err = ipc.NewClient(pipeName(cfg)).Call(context.Background(), protocol.MethodPerformanceGet, protocol.PerformanceGetParams{}, &res); err == nil {
 			err = printJSON(res)
+		}
+	case "upgrade-agent":
+		cfg, _ := config.Load(*cfgPath)
+		var res protocol.UpgradeAgentResult
+		pp := protocol.UpgradeAgentParams{DownloadURL: *dlURL, TargetVersion: *dlVersion, SHA256: *dlSHA}
+		err = ensurePrivileged(cfg, func(cl *ipc.Client) error {
+			return cl.Call(context.Background(), protocol.MethodAgentUpgrade, pp, &res)
+		})
+		if err == nil {
+			fmt.Printf("Upgrade %s -> %s %s. The service will restart; the outcome is reported to IT Command Center.\n",
+				res.FromVersion, res.TargetVersion, res.Status)
 		}
 	case "rename-pc":
 		cfg, _ := config.Load(*cfgPath)
@@ -468,6 +486,8 @@ Commands:
                    -reason "..."  [-scope remove_everything|remove_everything_clean]
                    add -i-understand to actually wipe (also retypes the name to confirm)
   audit          Show the administrative action audit log (admin) [-days N]
+  upgrade-agent  Remotely upgrade this agent (admin, global-admin login):
+                   -download-url https://... -target-version 1.5.0 -sha256 <hex>
 
  Global admin login (the security layer):
   set-admin-password    Set or change the global admin password (prompted)
