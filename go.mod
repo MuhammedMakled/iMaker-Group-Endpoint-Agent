@@ -1,6 +1,6 @@
 module github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent
 
-go 1.22
+go 1.24
 
 require (
 	fyne.io/systray v1.11.0
