@@ -116,3 +116,9 @@ jobs:
             dist/imaker-agent-*.zip
             dist/imaker-agent-*.zip.sha256
           generate_release_notes: true
+          draft: true
+      - name: Publish release (after all assets are uploaded)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$env:GITHUB_REF_NAME" --draft=false --repo "$env:GITHUB_REPOSITORY" 
