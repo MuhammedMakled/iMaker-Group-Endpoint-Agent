@@ -37,6 +37,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.9"
+      - name: Resolve modules
+        run: go mod tidy
       - name: Build
         shell: pwsh
         run: |
@@ -66,6 +68,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.9"
+      - name: Resolve modules
+        run: go mod tidy
       - name: Build
         shell: pwsh
         run: |
