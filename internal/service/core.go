@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,8 +68,11 @@ type Core struct {
 	cred    *auth.CredentialStore
 	authMgr *auth.Manager
 	control ControlProvider
-	ipAllow *ipallow.List
-	stopCh  chan struct{}
+	upd     Updater // nil outside Windows
+	// httpClient is used for update downloads and reports; nil = package default.
+	httpClient *http.Client
+	ipAllow    *ipallow.List
+	stopCh     chan struct{}
 }
 
 // NewCore opens the stores under dataDir (normally %ProgramData%\Imaker\data).
@@ -120,6 +124,7 @@ func (c *Core) Register(m *ipc.Mux) {
 	c.registerActions(m)
 	c.registerAuth(m)
 	c.registerControl(m)
+	c.registerUpgrade(m)
 	// Phase 3: m.HandleAdmin("action.restart", ...), "action.rename", "deploy.install"
 }
 
@@ -135,10 +140,13 @@ func (c *Core) RunSchedulers(ctx context.Context) {
 	}
 	c.refreshTelemetry(ctx)
 	c.refreshSoftware(ctx)
+	c.ReportUpgradeResult(ctx)
 
 	tt := time.NewTicker(c.cfg.TelemetryInterval.D())
 	st := time.NewTicker(c.cfg.SoftwareInterval.D())
 	pt := time.NewTicker(24 * time.Hour)
+	rt := time.NewTicker(5 * time.Minute) // retries an undelivered upgrade report
+	defer rt.Stop()
 	defer tt.Stop()
 	defer st.Stop()
 	defer pt.Stop()
@@ -156,6 +164,8 @@ func (c *Core) RunSchedulers(ctx context.Context) {
 			c.refreshSoftware(ctx)
 		case <-pt.C:
 			c.prune()
+		case <-rt.C:
+			c.ReportUpgradeResult(ctx)
 		}
 	}
 }

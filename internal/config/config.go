@@ -100,6 +100,12 @@ type Config struct {
 	RestartReminderAfter     Duration `json:"restart_reminder_after"` // uptime before "please restart" when updates are pending
 	SupportURL               string   `json:"support_url"`            // optional "Contact IT" link on alerts
 
+	// Remote self-update. Empty UpdateAllowedHosts disables upgrades entirely.
+	UpdateAllowedHosts     []string `json:"update_allowed_hosts"`     // exact hostnames the bundle may come from
+	UpdateRequireSignature bool     `json:"update_require_signature"` // Authenticode-check both binaries
+	UpdateSignerSubject    string   `json:"update_signer_subject"`    // substring of the signer certificate subject
+	UpdateReportURL        string   `json:"update_report_url"`        // https endpoint for UPGRADE_SUCCESS/FAILED
+
 	// ---- System service ----
 	TelemetryInterval           Duration `json:"telemetry_interval"`
 	SoftwareInterval            Duration `json:"software_interval"`
@@ -180,6 +186,8 @@ func Default() *Config {
 		PipeName:      DefaultPipeName,
 		RetentionDays: 90,
 		LogLevel:      "info",
+
+		UpdateRequireSignature: true,
 	}
 }
 
