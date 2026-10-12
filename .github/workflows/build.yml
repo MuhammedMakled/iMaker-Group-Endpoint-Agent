@@ -6,26 +6,37 @@ on:
     tags: ["v*"]
   pull_request:
 
+# Default: read-only. Each job asks for only what it needs.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-
       - name: Resolve modules
         run: go mod tidy
-
       - name: Vet & test
         run: |
           go vet ./...
           go test ./...
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
 
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
       - name: Build
         shell: pwsh
         run: |
@@ -36,18 +47,68 @@ jobs:
           go build -trimpath -ldflags "$ld -H=windowsgui" -o dist/ImakerTrayApp.exe ./cmd/agent
           go build -trimpath -ldflags "$ld" -o dist/ImakerAgentService.exe ./cmd/service
           Copy-Item configs/agent.example.json dist/
-
       - uses: actions/upload-artifact@v4
         with:
-          name: imaker-endpoint-agent
+          name: imaker-endpoint-agent-unsigned
           path: dist/
 
+  # Tagged releases only. Runs in the protected "release" environment, which
+  # needs approval and holds the signing secrets (add them in Settings → Environments).
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF_NAME.TrimStart("v")
+          $ld = "-s -w -X github.com/MuhammedMakled/iMaker-Group-Endpoint-Agent/internal/config.Version=$ver"
+          $env:CGO_ENABLED = "0"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -trimpath -ldflags "$ld -H=windowsgui" -o dist/ImakerTrayApp.exe ./cmd/agent
+          go build -trimpath -ldflags "$ld" -o dist/ImakerAgentService.exe ./cmd/service
+      - name: Sign binaries (Authenticode)
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX_BASE64) { throw "CODE_SIGNING_PFX_BASE64 is not set in the release environment" }
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          try {
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+            foreach ($f in @("dist/ImakerAgentService.exe", "dist/ImakerTrayApp.exe")) {
+              & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:PFX_PASSWORD $f
+              if ($LASTEXITCODE -ne 0) { throw "signing failed for $f" }
+            }
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+      - name: Build update bundle and checksum
+        shell: pwsh
+        run: |
+          $zip = "dist/imaker-agent-$($env:GITHUB_REF_NAME.TrimStart('v')).zip"
+          Compress-Archive -Path dist/ImakerAgentService.exe, dist/ImakerTrayApp.exe -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $zip -Leaf)" | Out-File -Encoding ascii "$zip.sha256"
+          Copy-Item configs/agent.example.json dist/
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/ImakerTrayApp.exe
             dist/ImakerAgentService.exe
+            dist/ImakerTrayApp.exe
             dist/agent.example.json
+            dist/imaker-agent-*.zip
+            dist/imaker-agent-*.zip.sha256
           generate_release_notes: true
