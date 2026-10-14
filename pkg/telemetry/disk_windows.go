@@ -20,13 +20,15 @@ type win32DiskDrive struct {
 }
 
 type msftPhysicalDisk struct {
-	DeviceId          string
-	FriendlyName      string
-	SerialNumber      string
-	MediaType         uint16
-	BusType           uint16
-	HealthStatus      uint16
-	OperationalStatus []uint16
+	DeviceId     string
+	FriendlyName string
+	SerialNumber string
+	MediaType    uint16
+	BusType      uint16
+	HealthStatus uint16
+	// WMI returns MSFT uint16 arrays as signed VT_I4 values; the WMI decoder
+	// panics if an unsigned slice receives them, so this must stay signed.
+	OperationalStatus []int32
 	Size              uint64
 }
 
@@ -103,7 +105,7 @@ func collectPhysicalDisks(s *protocol.TelemetrySnapshot) error {
 			pd.MediaType = MediaTypeName(p.MediaType)
 			pd.Health = HealthStatusName(p.HealthStatus)
 			for _, o := range p.OperationalStatus {
-				pd.OperationalStatus = append(pd.OperationalStatus, OperationalStatusName(o))
+				pd.OperationalStatus = append(pd.OperationalStatus, OperationalStatusName(uint16(o)))
 			}
 			if pd.SerialNumber == "" {
 				pd.SerialNumber = cleanString(p.SerialNumber)
